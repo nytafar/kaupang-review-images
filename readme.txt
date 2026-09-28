@@ -23,6 +23,39 @@ Review image and avatar uploads for WooCommerce product reviews — customers at
 `block/build/` is committed, so deploys are copy-only — no `node` on the server. See
 [Building](#building) if you change the editor JS.
 
+== Usage ==
+
+= For customers =
+
+1. Write a product review as usual
+2. **Your Photo** (optional) — upload an avatar
+3. **Product Image** (optional) — upload a photo of the product
+4. Submit. Both appear with the review once it is approved.
+
+= For administrators =
+
+Go to **Comments**. The "Image" column shows the review photo; opening a review shows the
+"Review Image" and "Review Author Avatar" meta boxes. Uploads are ordinary attachments, so they
+are managed and deleted from the Media Library like anything else.
+
+= For editors — the Curated Review block =
+
+Editorial, not a feed. An editor picks *one* review and places it: a testimonial on the home
+page, a callout in a blog post, a trust signal on a landing page. The same review can appear in
+three places looking completely different, because the block decides only **which data elements
+are present** and the theme decides how they look.
+
+Insert **Curated Review** (Widgets category), pick a product in the sidebar, then one of its
+reviews. On a product page the product is pre-filled — an editor convenience, not a different
+default.
+
+The review picker reads `GET /wc/v3/products/reviews`, whose permission is `moderate_comments`.
+Administrator, Editor and Shop manager pass; Author and Contributor get a 403 and the picker says
+so. The frontend renders for everyone — only *choosing* is gated.
+
+Known cap: the picker requests `per_page=100`, so a product with more than 100 approved reviews
+truncates the list.
+
 == Changelog ==
 
 = 2.0.0 – 2026-09-01 =
