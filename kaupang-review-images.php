@@ -12,7 +12,7 @@
  * Requires at least: 6.7
  * Requires Plugins: woocommerce
  * WC requires at least: 9.0
- * WC tested up to: 11.0
+ * WC tested up to: 11.1
  * License: GPL-2.0-or-later
  *
  * @package KaupangReviewImages
@@ -39,12 +39,13 @@ spl_autoload_register(function (string $class): void {
     }
 });
 
-// Declare HPOS (custom order tables) compatibility. This plugin only works with
-// product reviews and avatars; it never reads or writes order data, so it is
-// safe under both legacy CPT and HPOS storage.
+// Declare HPOS and block cart/checkout compatibility. This plugin only works with
+// product reviews and avatars; it never reads or writes order data and never
+// touches the cart or checkout, so both storage modes and both checkouts are safe.
 add_action('before_woocommerce_init', static function (): void {
     if (class_exists(\Automattic\WooCommerce\Utilities\FeaturesUtil::class)) {
         \Automattic\WooCommerce\Utilities\FeaturesUtil::declare_compatibility('custom_order_tables', __FILE__, true);
+        \Automattic\WooCommerce\Utilities\FeaturesUtil::declare_compatibility('cart_checkout_blocks', __FILE__, true);
     }
 });
 
