@@ -1,0 +1,5 @@
+{
+  "contributors": ["lassejellum"],
+  "tags": ["woocommerce", "reviews", "review images", "avatar", "gravatar"],
+  "shortDescription": "Customers attach a product photo and a profile picture to their WooCommerce review; default Gravatars stay off the page."
+}

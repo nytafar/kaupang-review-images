@@ -1,6 +1,8 @@
 # Changelog
 
 All notable changes to this plugin. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), versions: [SemVer](https://semver.org/).
+Entries below 2.0.0 are history: the hooks and `wcri_*` filter names they mention no longer exist — the current API
+is the filter table in README.md.
 
 ## [Unreleased]
 
@@ -15,6 +17,7 @@ All notable changes to this plugin. Format: [Keep a Changelog](https://keepachan
 
 ### Changed
 - Adopted suite kit v1: `tools/pre-commit` version-sync hook, this CHANGELOG.md as the one changelog, `WC tested up to: 11.1` with `cart_checkout_blocks` declared alongside HPOS.
+- Adopted suite kit v2: `readme.txt` generated from header + README.md + CHANGELOG.md (`readme.meta.json` for registry fields), `tools/release`.
 
 ## [2.0.0] - 2026-09-01
 
@@ -58,6 +61,13 @@ Two breaking changes — the rename and the hook removal — hence the major bum
 - **DOCS**: two defaults were documented wrongly before this release —
   `display_avatar_in_meta` was documented `true` but was always `false` (moot: it is deleted),
   and `gravatar_base_size` was documented `200` but has always been `120`.
+
+## [1.2.1] - 2025-12-17
+- Frontend styles and a toggle script for the review image/avatar upload form (accordion form now displays correctly when open)
+- Improved translation loading and updated Norwegian translations
+- Declared HPOS (custom order tables) compatibility
+- Gravatar existence check extracted into one shared helper (`wcri_has_gravatar()`); duplicate implementations removed
+- Removed debug logging and the unused `display_avatar_upload_field()` method
 
 ## [1.2.0] - 2025-10-27
 - **NEW**: Added custom avatar upload functionality for review authors
@@ -103,11 +113,7 @@ Two breaking changes — the rename and the hook removal — hence the major bum
 - Added basic security checks
 - Improved code documentation
 
-## [1.0.0] - 2025-05-18
+## [1.0.0] - 2025-05-19
 - Initial release
 - Basic image upload functionality
 - Admin interface for managing review images
-
-> Changelog entries below 2.0.0 are history. The hooks and `wcri_*` filter names they mention no
-> longer exist — the current API is the filter table in README.md.
-
