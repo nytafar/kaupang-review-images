@@ -2,10 +2,12 @@
 /**
  * The Curated Review block.
  *
- * A presentation surface for one hand-picked product review. Ships zero CSS:
- * the toggles decide WHAT renders, the theme decides HOW it looks. This render
- * callback is the single source of truth for the markup -- the editor previews
- * it through ServerSideRender, so there is no JS-side copy to drift.
+ * A presentation surface for one hand-picked product review. The toggles decide
+ * WHAT renders, the theme decides HOW it looks; the stylesheet ships a floor
+ * (stars that are not broken, a blockquote without the UA's 40px indent) and
+ * three arrangements, and no chrome in any of them. This render callback is the
+ * single source of truth for the markup -- the editor previews it through
+ * ServerSideRender, so there is no JS-side copy to drift.
  *
  * No schema.org, no JSON-LD, deliberately. The reasoning and its primary
  * sources are in issue #2 section J; do not add them back without reading it.
@@ -52,10 +54,11 @@ final class CuratedReview
         /**
          * Drop the block's own stylesheet.
          *
-         * The two style variations ship structure only -- reading order, a
-         * round avatar, a photo that stays inside its column -- and no chrome.
-         * A theme that would rather own even that returns false here and styles
-         * .is-style-quote / .is-style-compact itself. The variations stay
+         * The sheet ships structure only -- reading order, a round avatar, a
+         * photo that stays inside its column, stars that are not broken -- and
+         * no chrome, at zero specificity. A theme that would rather own even
+         * that returns false here and styles .is-style-quote /
+         * .is-style-stacked / .is-style-compact itself. The variations stay
          * registered either way, so the editor still offers them.
          *
          * @param bool $enqueue

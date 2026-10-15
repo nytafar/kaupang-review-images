@@ -1,102 +1,127 @@
 /**
- * Curated Review — style variations.
+ * Curated Review — the floor, and three layouts.
  *
- * Structure only. No colour, no background, no border, no shadow, no font
- * family, no spacing scale: that is chrome, and chrome belongs to the theme.
- * What lives here is only what the review needs in order to READ as a review —
- * reading order, the avatar being round, the photo not escaping its column.
+ * ── What this file may contain ────────────────────────────────────────────
+ * Structure: reading order, arrangement, a round avatar, a photo that stays
+ * inside its column, a blockquote the browser would otherwise indent 40px.
  *
- * Everything tunable is a custom property, so a theme retunes by setting one
- * value rather than out-specifying a rule.
+ * ── What it may not ───────────────────────────────────────────────────────
+ * Chrome: colour, background, border, shadow, font family, radius. Those are
+ * the theme's, in every mode. `color` is never set, not even to `inherit` —
+ * a block with no theme rule inherits its surroundings anyway, and declaring
+ * it once put a cover block's white text onto a card the theme had painted
+ * cream.
  *
- * `color` is deliberately NOT set here, not even to `inherit`. Colour is chrome.
- * A block with no theme rule inherits its surroundings anyway, so declaring it
- * buys nothing -- and because these selectors carry two classes they would
- * out-specify a theme's own `.kaupang-review { color: ... }`. That is exactly
- * what happened on a cover block: the plugin forced the cover's white text onto
- * the card the theme had just painted cream.
+ * ── Specificity ───────────────────────────────────────────────────────────
+ * Every selector below is wrapped in `:where()`, so the whole stylesheet has
+ * ZERO specificity. A theme wins on a single class, always, without caring
+ * which stylesheet loaded first. This is a floor, never a fight.
  *
- * The default style ships NOTHING. Neither selector below matches a block with
- * no variation chosen, which is the point: `None` stays exactly as bare as it
- * was before this file existed.
+ * ── Custom properties are SLOTS, not declarations ─────────────────────────
+ * This file declares no custom property. Each is read where it is used, as
  *
- * A theme that wants none of it at all:
+ *     var(--kaupang-review-X, var(--upstream-token, literal))
+ *              │                      │                └── standalone default
+ *              │                      └── the host design system, if it has one
+ *              └── this block's override
+ *
+ * so a theme that already has a spacing scale gets a review that matches it
+ * with no theme code at all, and one that has none still gets a sane block.
+ * Declaring a default here would freeze the value and force every theme to
+ * out-declare it — the difference between a slot and a wire, and the reason
+ * the parent theme upstream stopped declaring font faces.
+ *
+ * The one exception is a variation declaring the token that IS its identity:
+ * Compact sets --kaupang-review-body-lines, because a compact layout that
+ * does not clamp tighter is not compact.
+ *
+ * | Slot                          | Upstream     | Default |
+ * |-------------------------------|--------------|---------|
+ * | --kaupang-review-gap          | --spacing-1/2| 0.5/1em |
+ * | --kaupang-review-inline       | em of itself | 34      |
+ * | --kaupang-review-avatar-size  | —            | 2.5em   |
+ * | --kaupang-review-body-size    | —            | 1.35em  |
+ * | --kaupang-review-meta-size    | —            | 0.875em |
+ * | --kaupang-review-body-lines   | —            | 6       |
+ * | --kaupang-review-photo-size   | —            | 4.5em   |
+ *
+ * A theme that wants none of this:
  *   add_filter( 'kaupang/review-images/enqueue_block_styles', '__return_false' );
  */
 
-.kaupang-review.is-style-quote,
-.kaupang-review.is-style-compact {
-	.kaupang-review__body {
-		// Browsers give blockquote `margin: 1em 40px`. That indent is a
-		// presentation decision we are not entitled to make.
-		margin: 0;
-		padding: 0;
-		border: 0;
-		font-style: inherit;
+/* ═══════════════════════════════════════════════════════════════════════════
+   THE FLOOR — every mode, including the unstyled default.
 
-		> :first-child {
-			margin-block-start: 0;
-		}
+   Not a look: the difference between a review that is unstyled and one that
+   is broken. Without these the stars render as the words "Rated 5 out of 5"
+   overlapping themselves, the quote sits in a 40px UA indent, and Read more
+   reads as a form control in the middle of a testimonial.
+   ═══════════════════════════════════════════════════════════════════════ */
 
-		> :last-child {
-			margin-block-end: 0;
-		}
-	}
+/* Browsers give blockquote `margin: 1em 40px`. That indent is a presentation
+   decision this block is not entitled to make on a theme's behalf. */
+:where(.kaupang-review__body) {
+	margin: 0;
+	padding: 0;
+	border: 0;
+	font-style: inherit;
 
-	// Themes commonly set a content-flow margin on descendants of <article> or
-	// .entry-content. Inherited auto-margins turn a flex row into scattered
-	// items -- Ousia was putting 46px on either side of every part of the
-	// byline. Neutralising them is structure, not chrome: without it these
-	// layouts simply are not the layouts they claim to be.
-	> *,
-	.kaupang-review__author > *,
-	.kaupang-review__product > * {
-		margin-inline: 0;
-		max-inline-size: none;
-	}
+	> :first-child { margin-block-start: 0; }
+	> :last-child { margin-block-end: 0; }
+}
 
-	.kaupang-review__images {
-		margin: 0;
-	}
+:where(.kaupang-review__images) {
+	margin: 0;
+}
 
-	.kaupang-review__image,
-	.kaupang-review__product-image {
-		display: block;
-		max-inline-size: 100%;
-		block-size: auto;
-	}
+:where(.kaupang-review__image, .kaupang-review__product-image) {
+	display: block;
+	max-inline-size: 100%;
+	block-size: auto;
+}
 
-	.kaupang-review__rating {
-		margin: 0;
-		line-height: 1;
-	}
+:where(.kaupang-review__rating) {
+	margin: 0;
+	line-height: 1;
+}
 
-	// A <button> carries UA chrome that would read as a form control in the
-	// middle of a testimonial. Stripping it back to text is structure; what the
-	// text then looks like -- underline, colour, weight -- is the theme's.
-	.kaupang-review__more {
-		appearance: none;
-		background: none;
-		border: 0;
-		margin: 0;
-		padding: 0;
-		font: inherit;
-		color: inherit;
-		cursor: pointer;
-		// A button centres its label and, as a stretched flex item, would centre
-		// it across the whole review. It is meant to read as a line of text
-		// following the quote, and to be no wider than its own words.
-		text-align: start;
-		align-self: start;
-	}
+:where(.kaupang-review__avatar) {
+	flex: none;
+	inline-size: var(--kaupang-review-avatar-size, 2.5em);
+	block-size: var(--kaupang-review-avatar-size, 2.5em);
+	border-radius: 50%;
+	object-fit: cover;
+}
 
-	.kaupang-review__avatar {
-		flex: none;
-		inline-size: var(--kaupang-review-avatar-size);
-		block-size: var(--kaupang-review-avatar-size);
-		border-radius: 50%;
-		object-fit: cover;
-	}
+/* A <button> carries UA chrome that would read as a form control in the middle
+   of a testimonial. Stripping it back to text is structure; what the text then
+   looks like — underline, colour, weight — is the theme's. */
+:where(.kaupang-review__more) {
+	appearance: none;
+	background: none;
+	border: 0;
+	margin: 0;
+	padding: 0;
+	font: inherit;
+	color: inherit;
+	cursor: pointer;
+	/* A button centres its label and, as a stretched flex item, would centre it
+	   across the whole review. It is meant to read as a line of text following
+	   the quote, no wider than its own words. */
+	text-align: start;
+	align-self: start;
+}
+
+/* The clamp lives here, not in a variation, so `Read more` works in every mode.
+   Keyed on data-expanded, which ONLY block/view.js sets, and only after it has
+   measured real overflow: a reader without JS gets the whole review and no
+   button, never truncated text with no way to reach the rest. */
+:where(.kaupang-review[data-expanded="false"] .kaupang-review__body) {
+	display: -webkit-box;
+	-webkit-line-clamp: var(--kaupang-review-body-lines, 6);
+	line-clamp: var(--kaupang-review-body-lines, 6);
+	-webkit-box-orient: vertical;
+	overflow: hidden;
 }
 
 /**
@@ -105,39 +130,33 @@
  * WooCommerce's own `.star-rating` CSS is scoped under `.woocommerce`, and a
  * page or post carrying this block is not. Without this the rating renders as
  * the literal words "Rated 5 out of 5" overlapping themselves — broken, not
- * merely unstyled, which is why it earns its place in a barebones sheet.
- *
- * Wrapped in `:where()` on BOTH halves so the whole thing has zero specificity.
- * It is a floor, never a fight: the moment a theme has stars of its own — as
- * myrvann does — the theme's win on a single class. Colour is not set; the
- * glyphs inherit and the empty half is opacity, not a colour.
+ * merely unstyled, which is why it earns its place and why it belongs to every
+ * mode rather than to two of them.
  *
  * The mechanic is WooCommerce's: a fixed-width strip of dim stars, with a
- * `<span>` whose inline `width:X%` clips a bright copy over the top. The span's
- * own text is pushed out of the clipped box rather than hidden, so it stays
- * readable to a screen reader.
+ * `<span>` whose inline `width:X%` clips a bright copy over the top. Colour is
+ * not set; the glyphs inherit and the empty half is opacity.
  */
-:where(.kaupang-review.is-style-quote, .kaupang-review.is-style-compact) :where(.star-rating) {
+:where(.kaupang-review .star-rating) {
 	display: inline-block;
 	position: relative;
 	overflow: hidden;
 	line-height: 1;
 
-	// The dim strip is IN FLOW, and is what gives the box its width. That is
-	// deliberate: Ousia ships an unscoped `.star-rating { width: max-content }`
-	// which, with an absolutely-positioned strip, resolves to zero and erases
-	// the rating. A zero-specificity floor cannot win that fight, so it is
-	// built not to need to -- max-content of five stars is exactly the width
-	// wanted anyway.
+	/* The dim strip is IN FLOW, and is what gives the box its width. That is
+	   deliberate: Ousia ships an unscoped `.star-rating { width: max-content }`
+	   which, with an absolutely-positioned strip, resolves to zero and erases
+	   the rating. A zero-specificity floor cannot win that fight, so it is
+	   built not to need to — max-content of five stars is the width wanted. */
 	&::before {
 		content: "★★★★★";
 		display: block;
 		opacity: 0.3;
 	}
 
-	// The bright strip is clipped to the inline width:X% WooCommerce puts on
-	// this span. Its own text ("Rated 5 out of 5") is pushed below the clipped
-	// box rather than hidden, so it stays available to a screen reader.
+	/* The bright strip is clipped to the inline width:X% WooCommerce puts on
+	   this span. Its own text is pushed below the clipped box rather than
+	   hidden, so it stays available to a screen reader. */
 	span {
 		position: absolute;
 		inset-block-start: 0;
@@ -154,38 +173,55 @@
 	}
 }
 
+/* ═══════════════════════════════════════════════════════════════════════════
+   THE MODES — arrangement only. One selector each, for the theme to hang
+   chrome on. The unstyled default deliberately has no rule here: it is the
+   floor and nothing else.
+   ═══════════════════════════════════════════════════════════════════════ */
+
+/* Themes commonly set a content-flow margin on descendants of <article> or
+   .entry-content — Ousia's `article > *` puts 46px either side of every child.
+   Inherited auto-margins turn a flex row into scattered items, so a mode that
+   declares a layout has to neutralise them for that layout to be real. The
+   unstyled default gets none of this: with no layout of its own, it has
+   nothing to protect, and the theme owns the question.
+
+   THE ONE RULE HERE THAT IS NOT ZERO-SPECIFICITY, and it has to be: its whole
+   job is out-ranking a theme's element-level `article > *`, which :where()
+   scores below. `:is()` takes its most specific argument, so this lands at
+   two classes — enough to win, low enough that a theme still takes it back
+   with a rule of its own at the same weight.
+
+   Wrapped in :where() this silently stopped working: the byline drifted to
+   the middle of the card, auto-margined by the parent theme. */
+.kaupang-review:is(.is-style-quote, .is-style-stacked, .is-style-compact) {
+	> *,
+	.kaupang-review__author > *,
+	.kaupang-review__product > * {
+		margin-inline: 0;
+		max-inline-size: none;
+	}
+}
+
 /**
  * Quote — the body leads and the attribution shrinks to a byline.
- * Sized for a hero or a cover block.
+ * Sized for a hero, a cover block, a testimonial band.
  */
-.kaupang-review.is-style-quote {
-	--kaupang-review-avatar-size: 2.5rem;
-	--kaupang-review-gap: 1rem;
-	--kaupang-review-body-size: 1.35em;
-	--kaupang-review-measure: 34ch;
-	--kaupang-review-meta-size: 0.875em;
-	--kaupang-review-body-lines: 6;
-
+:where(.kaupang-review.is-style-quote) {
 	display: flex;
 	flex-direction: column;
-	gap: var(--kaupang-review-gap);
+	gap: var(--kaupang-review-gap, var(--spacing-2, 1em));
 
 	.kaupang-review__body {
-		font-size: var(--kaupang-review-body-size);
-		line-height: 1.35;
-		// A measure, not a width: long testimonials stay readable, short ones
-		// do not get stretched.
-		max-inline-size: var(--kaupang-review-measure);
-	}
-
-	// Only ever set by block/view.js, and only after it has confirmed the text
-	// actually overflows. A reader without JS gets the whole review.
-	&[data-expanded="false"] .kaupang-review__body {
-		display: -webkit-box;
-		-webkit-line-clamp: var(--kaupang-review-body-lines);
-		line-clamp: var(--kaupang-review-body-lines);
-		-webkit-box-orient: vertical;
-		overflow: hidden;
+		font-size: var(--kaupang-review-body-size, 1.35em);
+		/* A measure, not a width: long testimonials stay readable, short ones
+		   are not stretched. Stated as a character count, the way Ousia states
+		   every other width — but in `em`, which here resolves against the
+		   quote's OWN size just above, not the body's. That distinction is the
+		   whole rule: a measure counts the characters you are reading. Against
+		   a root font size it silently divides by three when a theme scales the
+		   quote up, and a display quote ends up eight characters wide. */
+		max-inline-size: calc(1em * var(--kaupang-review-inline, 34));
 	}
 
 	.kaupang-review__author {
@@ -193,11 +229,57 @@
 		flex-wrap: wrap;
 		align-items: center;
 		gap: 0.6em;
-		font-size: var(--kaupang-review-meta-size);
+		font-size: var(--kaupang-review-meta-size, 0.875em);
 	}
 
 	.kaupang-review__product {
-		font-size: var(--kaupang-review-meta-size);
+		font-size: var(--kaupang-review-meta-size, 0.875em);
+	}
+}
+
+/**
+ * Stacked — reading order, top to bottom, at a readable rhythm. The plain one:
+ * what a review looks like when nothing clever is being done to it, and the
+ * mode a theme most naturally hangs a card on.
+ */
+:where(.kaupang-review.is-style-stacked) {
+	display: grid;
+	justify-items: start;
+	gap: var(--kaupang-review-gap, var(--spacing-1, 0.5em));
+
+	.kaupang-review__author {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: center;
+		gap: 0 var(--kaupang-review-gap, var(--spacing-1, 0.5em));
+	}
+
+	.kaupang-review__images {
+		display: grid;
+		grid-template-columns: repeat(auto-fit, minmax(8em, 1fr));
+		gap: var(--kaupang-review-gap, var(--spacing-1, 0.5em));
+		/* A customer photo is an accent in a testimonial, not a hero: cap it so
+		   a portrait shot cannot out-shout the quote it illustrates. */
+		max-inline-size: 18em;
+	}
+
+	.kaupang-review__image {
+		inline-size: 100%;
+	}
+
+	.kaupang-review__product-link {
+		display: inline-flex;
+		align-items: center;
+		gap: var(--kaupang-review-gap, var(--spacing-1, 0.5em));
+	}
+
+	/* A literal, not the --photo-size slot: that slot is Compact's cap on
+	   customer photos, and a product thumbnail beside a name is a different
+	   thing. One knob doing two jobs is worse than no knob — the theme wins
+	   here on a single class either way. */
+	.kaupang-review__product-image {
+		max-block-size: 2.25em;
+		inline-size: auto;
 	}
 }
 
@@ -210,35 +292,34 @@
  * removed, so an editor who leaves them on gets something proportionate
  * instead of something invisible.
  */
-.kaupang-review.is-style-compact {
-	--kaupang-review-avatar-size: 2rem;
-	--kaupang-review-gap: 0.5rem;
+:where(.kaupang-review.is-style-compact) {
+	/* Declared, not slotted: clamping tighter is what makes this mode compact.
+	   A theme retunes it; the mode still has to state it. */
 	--kaupang-review-body-lines: 4;
-	--kaupang-review-photo-size: 4.5rem;
 
 	display: flex;
 	flex-wrap: wrap;
 	align-items: center;
-	// Rows pack to the top, so a card with a shorter byline does not float its
-	// content down the middle.
-	//
-	// ponytail: this does NOT make a row of cards in wp:columns end level --
-	// the column's height is not definite, so a percentage height on the card
-	// resolves to auto. Equal heights need the column itself to be a flex
-	// container, which is the theme's call:
-	//   .wp-block-column > .kaupang-review { block-size: 100%; }
-	//   .wp-block-column { display: flex; }
+	/* Rows pack to the top, so a card with a shorter byline does not float its
+	   content down the middle.
+
+	   ponytail: this does NOT make a row of cards in wp:columns end level — the
+	   column's height is not definite, so a percentage height on the card
+	   resolves to auto. Equal heights need the column itself to be a flex
+	   container, which is the theme's call:
+	     .wp-block-column { display: flex; }
+	     .wp-block-column > .kaupang-review { block-size: 100%; } */
 	align-content: flex-start;
-	gap: var(--kaupang-review-gap);
+	gap: var(--kaupang-review-gap, var(--spacing-1, 0.5em));
 	font-size: 0.9375em;
 
-	// Reading order in the markup is body-first, which is right for screen
-	// readers and text extraction. Visually the byline leads here. `order` is
-	// exactly the seam that lets those two differ.
+	/* Reading order in the markup is body-first, which is right for screen
+	   readers and text extraction. Visually the byline leads here. `order` is
+	   exactly the seam that lets those two differ. */
 	.kaupang-review__author {
 		order: 1;
-		// Shrinkable, so the rating keeps the top row when there is space and
-		// drops below it when there is not, instead of always being pushed off.
+		/* Shrinkable, so the rating keeps the top row when there is space and
+		   drops below it when there is not, instead of always being pushed off. */
 		flex: 1 1 auto;
 		min-inline-size: 0;
 		display: flex;
@@ -255,47 +336,17 @@
 	.kaupang-review__body {
 		order: 3;
 		flex-basis: 100%;
-		line-height: 1.4;
 
-		p {
-			margin: 0;
-		}
+		p { margin: 0; }
 	}
 
-	// Compact clamps by default -- that is the whole point of it -- but yields
-	// the moment view.js expands it. Clamp rather than truncate in markup: the
-	// full text stays in the DOM for search and for anyone reading it aloud.
-	&:not([data-expanded="true"]) .kaupang-review__body {
-		display: -webkit-box;
-		-webkit-line-clamp: var(--kaupang-review-body-lines);
-		line-clamp: var(--kaupang-review-body-lines);
-		-webkit-box-orient: vertical;
-		overflow: hidden;
-	}
+	.kaupang-review__more { order: 4; flex-basis: 100%; }
+	.kaupang-review__images { order: 5; flex-basis: 100%; }
+	.kaupang-review__product { order: 6; flex-basis: 100%; font-size: 0.875em; }
 
-	.kaupang-review__more {
-		order: 4;
-		flex-basis: 100%;
-	}
-
-	.kaupang-review__images {
-		order: 5;
-		flex-basis: 100%;
-	}
-
-	.kaupang-review__image {
-		max-block-size: var(--kaupang-review-photo-size);
-		inline-size: auto;
-	}
-
-	.kaupang-review__product {
-		order: 6;
-		flex-basis: 100%;
-		font-size: 0.875em;
-	}
-
+	.kaupang-review__image,
 	.kaupang-review__product-image {
-		max-block-size: var(--kaupang-review-photo-size);
+		max-block-size: var(--kaupang-review-photo-size, 4.5em);
 		inline-size: auto;
 	}
 }

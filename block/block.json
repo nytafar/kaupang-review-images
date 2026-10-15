@@ -67,6 +67,10 @@
       "label": "Quote"
     },
     {
+      "name": "stacked",
+      "label": "Stacked"
+    },
+    {
       "name": "compact",
       "label": "Compact"
     }

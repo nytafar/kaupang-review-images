@@ -230,6 +230,48 @@ try {
     $outsideStars = (string) preg_replace('#<span class="star-rating".*?</span></span>#s', '', $html);
     kri_check('no inline style outside WooCommerce\'s star span', stripos($outsideStars, 'style=') === false, $outsideStars);
 
+    // --- the stylesheet keeps its side of the split -------------------------
+    // Structure here, chrome in the theme. Three rules, each one a promise a
+    // theme is entitled to rely on, and each one a thing a hurried edit breaks
+    // without any test noticing.
+    $css = (string) file_get_contents(KAUPANG_REVIEW_IMAGES_DIR . 'block/build/style-index.css');
+
+    // 1. Zero specificity throughout: every selector wrapped in :where(), so a
+    //    theme always wins on a single class regardless of load order. The lone
+    //    exception is the margin reset, whose job IS to out-rank a theme's
+    //    element-level `article > *` -- see the comment on it in style.scss.
+    preg_match_all('#(^|\})\s*([^{}@]+)\{#', $css, $selectors);
+    $specific = array_values(array_filter(
+        array_map('trim', $selectors[2] ?? []),
+        static fn($sel) => $sel !== ''
+            && strpos($sel, ':where') === false
+            && strpos($sel, '.kaupang-review:is(') !== 0
+    ));
+    kri_check('every selector is zero-specificity', $specific === [], implode(' | ', $specific));
+
+    // 2. No custom property declared, with one exception: Compact states the
+    //    line count that IS its identity. Everything else is a slot, read as
+    //    var(--slot, var(--upstream, literal)) so a theme's scale wins untouched.
+    preg_match_all('#(--kaupang-review-[a-z-]+)\s*:#', $css, $declared);
+    $unexpected = array_values(array_diff(
+        array_unique($declared[1] ?? []),
+        ['--kaupang-review-body-lines']
+    ));
+    kri_check('declares no slot but Compact\'s own', $unexpected === [], implode(', ', $unexpected));
+
+    // 3. No chrome. The three allowed strings are resets and structure, not
+    //    decoration: `background:none`/`border:0` strip UA button and blockquote
+    //    chrome, `border-radius:50%` is what makes an avatar an avatar.
+    preg_match_all('#(?:background|border|box-shadow|font-family)[a-z-]*\s*:\s*[^;}]+#', $css, $paint);
+    $chrome = array_values(array_diff(
+        array_unique(array_map(
+            static fn($d) => preg_replace('/\s+/', '', $d),
+            $paint[0] ?? []
+        )),
+        ['background:none', 'border:0', 'border-radius:50%']
+    ));
+    kri_check('ships no chrome', $chrome === [], implode(' | ', $chrome));
+
     // --- avatar chain -------------------------------------------------------
     // Upload must beat a real Gravatar.
     kri_gravatar_cache(KRI_FIXTURE_EMAIL, true);

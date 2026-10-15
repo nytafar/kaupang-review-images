@@ -94,50 +94,85 @@ through `<ServerSideRender />`, so there is no JS-side copy that can drift.
 
 ### Style variations
 
-Three choices in the editor's Styles panel. **None is the default and ships no CSS whatsoever** —
-neither stylesheet selector matches a block without a variation, so an unstyled block is exactly as
-bare as it was before the stylesheet existed.
+Four choices in the editor's Styles panel. The block ships a **floor** that applies to all of them,
+including the default, plus one selector per layout for a theme to hang chrome on.
 
 | Style | For | What it does |
 |---|---|---|
-| **None** | theme owns everything | nothing at all |
-| **Quote** (`is-style-quote`) | a hero, a cover block, a testimonial band | body leads at `1.35em` on a `34ch` measure, attribution collapses to one byline row |
-| **Compact** (`is-style-compact`) | a one-third column, a sidebar | byline and rating share the top row, body clamped to four lines |
+| **Default** | a theme that owns the whole look | the floor, and nothing else |
+| **Quote** (`is-style-quote`) | a hero, a cover block, a testimonial band | body leads, attribution collapses to one byline row, a measure caps the line length |
+| **Stacked** (`is-style-stacked`) | a page, a post, anywhere ordinary | reading order top to bottom at a readable rhythm — the mode a card is most naturally hung on |
+| **Compact** (`is-style-compact`) | a one-third column, a sidebar | byline and rating share the top row, body clamps to four lines |
 
-What the two variations ship is **structure only**: reading order, a round avatar, a photo that
-stays inside its column, `margin: 0` on a `<blockquote>` the browser would otherwise indent 40px.
+#### The floor
+
+Not a look — the difference between a review that is *unstyled* and one that is *broken*. It belongs
+to every mode, because a default that renders broken is not a default:
+
+- **Stars.** WooCommerce's own `.star-rating` CSS is scoped under `.woocommerce`, and a page or post
+  carrying this block is not. Without the floor the rating renders as the literal words "Rated 5 out
+  of 5" overlapping themselves.
+- **The blockquote.** Browsers indent it 40px. That indent is a presentation decision this block is
+  not entitled to make on a theme's behalf.
+- **Read more.** A bare `<button>` reads as a form control in the middle of a testimonial.
+- **The clamp**, so `expandable` works in every mode rather than only where a variation supplied it.
+- A round avatar, and images that stay inside their column.
+
 No colour, no background, no border, no shadow, no font family. That is chrome, and chrome is the
-theme's — `myrvann/scss/plugins/_kaupang-review.scss` is where it lands on this site.
+theme's — `myrvann/scss/plugins/_kaupang-review.scss` is where it lands on this site. `color` is
+**never** set, not even to `inherit`: a block inherits its surroundings without help, and setting it
+once forced a cover block's white text onto a card the theme had just painted cream.
 
-One exception earns its place: the two variations ship a **star-rating floor**.
-WooCommerce's own `.star-rating` CSS is scoped under `.woocommerce`, and a page or post carrying
-this block is not — so without it the rating renders as the literal words "Rated 5 out of 5"
-overlapping themselves. That is broken, not merely unstyled. The floor is wrapped in `:where()` so
-it has **zero specificity**: any theme with stars of its own wins on a single class.
+#### Zero specificity
 
-`color` in particular is **never** set, not even to `inherit`: these selectors carry two classes and
-would out-specify a theme's own `.kaupang-review { color: … }`. A block inherits its surroundings
-without help.
+Every selector is wrapped in `:where()`, so the whole stylesheet scores 0. A theme wins on a single
+class, always, without depending on which stylesheet loaded first.
 
-Every value is a custom property, so a theme retunes by setting one rather than out-specifying a
-rule:
+One rule is deliberately exempt: the margin reset is `.kaupang-review:is(.is-style-quote, …) > *`,
+because its entire job is out-ranking a theme's element-level `article > *` — Ousia's content
+constraint, which otherwise auto-margins every part of a flex row into the middle of the card.
+`:where()` scores below an element selector, so wrapping that one silently broke it. `:is()` lands
+it at two classes: enough to win, low enough that a theme takes it back at the same weight.
 
-| Property | Quote | Compact |
-|---|---|---|
-| `--kaupang-review-avatar-size` | `2.5rem` | `2rem` |
-| `--kaupang-review-gap` | `1rem` | `0.5rem` |
-| `--kaupang-review-body-size` | `1.35em` | — |
-| `--kaupang-review-measure` | `34ch` | — |
-| `--kaupang-review-meta-size` | `0.875em` | — |
-| `--kaupang-review-body-lines` | — | `4` |
-| `--kaupang-review-photo-size` | — | `4.5rem` |
+#### Slots, not declarations
+
+**The stylesheet declares no custom property.** Each value is read where it is used:
+
+```css
+gap: var(--kaupang-review-gap, var(--spacing-2, 1em));
+/*        └ this block's override  └ your design system  └ standalone default */
+```
+
+So a theme that already has a spacing scale gets a review that matches it with **no theme code at
+all**, and a theme that has none still gets a sane block. Declaring a default here would freeze the
+value on the style selector and force every theme to out-declare all of them — a wire where a slot
+was wanted.
+
+| Slot | Upstream token | Default | Used by |
+|---|---|---|---|
+| `--kaupang-review-gap` | `--spacing-2` / `--spacing-1` | `1em` / `0.5em` | every layout |
+| `--kaupang-review-inline` | — | `34` | Quote |
+| `--kaupang-review-avatar-size` | — | `2.5em` | floor |
+| `--kaupang-review-body-size` | — | `1.35em` | Quote |
+| `--kaupang-review-meta-size` | — | `0.875em` | Quote |
+| `--kaupang-review-body-lines` | — | `6` | floor (Compact declares `4`) |
+| `--kaupang-review-photo-size` | — | `4.5em` | Compact |
+
+`--kaupang-review-inline` is a **character count**, multiplied by `1em` of the body's own size — the
+idiom Ousia uses for every other width (`--inline-width: 42`). Anchoring it to a root font size
+instead divides by three the moment a theme scales the quote up, and a display quote comes out eight
+characters wide.
+
+The one exception to "declares nothing" is a variation declaring the token that *is* its identity:
+Compact sets `--kaupang-review-body-lines`, because a compact layout that does not clamp tighter is
+not compact.
 
 The variations never hide anything. Presence is the toggles' job; Compact caps the photo and the
 product footnote small rather than removing them, so an editor who leaves them on gets something
 proportionate instead of something invisible.
 
-To drop the plugin's stylesheet entirely and style `.is-style-quote` / `.is-style-compact` yourself,
-the variations stay registered either way:
+To drop the stylesheet entirely and style the selectors yourself — the variations stay registered
+either way:
 
 ```php
 add_filter( 'kaupang/review-images/enqueue_block_styles', '__return_false' );
@@ -147,9 +182,13 @@ There are still no inline styles on anything the block authors. The one you will
 rating is WooCommerce's own `width:X%` star encoding from `wc_get_star_rating_html()`, which is
 data, not presentation.
 
-> **History.** Spec §2 §I originally said the block ships zero CSS in every configuration. That was
-> reversed deliberately: the default still ships nothing, and the two variations ship the minimum a
-> review needs in order to read as a review.
+> **History.** Spec §2 §I originally said the block ships zero CSS in every configuration. The first
+> implementation of these variations read that as a byte count: it scoped the stars, the blockquote
+> reset and the clamp to two variations, leaving the *default* — the only mode in real use — as the
+> one mode that rendered broken. The theme then grew an always-on card to paper over it, which
+> framed every review as a box, including the ones that wanted no box at all. The rule is a
+> boundary, not a byte count: **floor in the plugin, chrome in the theme, in every mode.**
+
 
 ### Attributes
 
@@ -191,10 +230,13 @@ is what the clamp is keyed on. Nobody is ever left with truncated text and no wa
 - Both labels ship as `data-label-more` / `data-label-less`, translated server-side.
 - Collapsing from below the fold scrolls the review back into view, rather than dumping the reader
   wherever the page happened to shorten to.
-- Line counts are `--kaupang-review-body-lines`: `6` in Quote, `4` in Compact.
-- **Under `None` the button appears but nothing clamps** — the clamp lives in the variations, and
-  `None` ships no CSS. Supply the clamp in the theme, or use a variation. The button hides itself
-  when nothing overflows, so it fails quietly rather than confusingly.
+- The line count is `--kaupang-review-body-lines`, `6` by default and `4` in Compact.
+- **Works in every style, including the default.** The clamp is part of the floor, not of a
+  variation: an editor who switches a toggle on gets the behaviour the toggle promises, whatever
+  style the block is wearing. It used to live in two variations, so turning `expandable` on under
+  the default rendered a button that expanded nothing.
+- Compact clamps *only* when `expandable` is on. Clamping without a way to expand hides text with no
+  route to the rest of it, which is the one thing the variations are not allowed to do.
 
 `block/view.js` is a plain file with no build step — the same convention as
 `assets/js/review-form-toggle.js` — registered as `viewScript`, so WordPress loads it only on pages
@@ -434,8 +476,8 @@ Two breaking changes — the rename and the hook removal — hence the major bum
   greps WooCommerce for it. `kaupang/review-images/display_avatar_in_meta` and
   `WC_Review_Images_Avatar_Display::display_avatar_in_review_meta()` go with them.
 - **NEW**: the **Curated Review** block (`kaupang-review-images/curated-review`) — one
-  hand-picked review, nine toggles, the `kaupang-review__*` class contract, and three
-  style variations of which the default ships no CSS.
+  hand-picked review, nine toggles, the `kaupang-review__*` class contract, a zero-specificity
+  floor, and three style variations for a theme to hang chrome on.
   Kill switch: `kaupang/review-images/enable_block`.
 - **FIXED**: a review whose author has **no email address** rendered the default mystery-person.
   The conditional-Gravatar branch only suppressed when an address was present and had no
