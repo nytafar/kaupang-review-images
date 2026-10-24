@@ -12,9 +12,9 @@
  * data-expanded, which only this file ever sets: a reader without JS is never
  * left with truncated text and no way to reach the rest.
  *
- * Plain file, no build step — the same convention as
- * assets/js/review-form-toggle.js. block.json enqueues it as viewScript, so it
- * only loads on pages that actually contain the block.
+ * Plain file, no build step. block.json registers it as viewScriptModule, so
+ * core prints it (deferred, as a module) only on pages where the block renders.
+ * It imports nothing; the IIFE keeps it valid as a classic script too.
  */
 ( function () {
 	'use strict';

@@ -238,9 +238,10 @@ is what the clamp is keyed on. Nobody is ever left with truncated text and no wa
 - Compact clamps *only* when `expandable` is on. Clamping without a way to expand hides text with no
   route to the rest of it, which is the one thing the variations are not allowed to do.
 
-`block/view.js` is a plain file with no build step — the same convention as
-`assets/js/review-form-toggle.js` — registered as `viewScript`, so WordPress loads it only on pages
-that actually contain the block.
+`block/view.js` is a plain ES module with no build step, registered as `viewScriptModule`, so core
+prints it (deferred) only on pages where the block renders. Its module id is
+`kaupang-review-images-curated-review-view-script-module`; `block.json` carries a `version` (synced to
+the plugin version by the kit hook) as its cache-buster.
 
 ### Class contract
 
@@ -333,9 +334,9 @@ Every filter this plugin defines, with the default it actually applies. All are 
 | `kaupang/review-images/enable_avatar_upload` | `bool $enabled` | `true` | `includes/Plugin.php`, `includes/Reviews/Images.php` |
 | `kaupang/review-images/enable_avatar_display` | `bool $enabled` | `true` | `includes/Plugin.php` |
 | `kaupang/review-images/enable_conditional_gravatars` | `bool $enabled` | `true` | `includes/Plugin.php`, `includes/Avatars/Display.php`, `includes/Avatars/Gravatar.php` |
-| `kaupang/review-images/enable_block` | `bool $enabled` | `true` | `includes/Block/CuratedReview.php` |
+| `kaupang/review-images/enable_block` | `bool $enabled` | `true` | `includes/Plugin.php` |
 | `kaupang/review-images/enqueue_styles` | `bool $enabled` | `true` | `includes/Reviews/Images.php` |
-| `kaupang/review-images/enqueue_block_styles` | `bool $enabled` | `true` | `includes/Block/CuratedReview.php` |
+| `kaupang/review-images/enqueue_block_styles` | `bool $enabled` | `true` | `includes/Plugin.php` |
 | `kaupang/review-images/upload_field_label` | `string $label`, `WP_Post $product` | `'Product Image'` | `includes/Reviews/Images.php` |
 | `kaupang/review-images/avatar_upload_field_label` | `string $label`, `WP_Post $product` | `'Your Photo'` | `includes/Reviews/Images.php` |
 | `kaupang/review-images/avatar_base_size` | `int $px` | `120` | `includes/Avatars/Display.php`, `includes/Block/CuratedReview.php` |
@@ -411,6 +412,27 @@ No custom tables. Comment meta plus ordinary attachments plus one transient.
 Uploads are parented to the product via `media_handle_upload()`; avatar attachments also get
 `_wp_attachment_image_alt`. Meta is written in `comment_post` **only if the comment is approved**.
 
+## Load map
+
+What a request loads from this plugin (`tools/load-budget.php`, measured with
+`wp kaupang-assets audit --plugins=kaupang-review-images --budget`). Every hook is registered in
+`Plugin::boot()` with a class-string callable, so a module loads only when its hook fires.
+
+| Context / page type | Modules (beyond main file + `Plugin`) | Assets | Autoloaded options |
+|---|---|---|---|
+| Guest page with no review and no block (shop, category, cart, checkout, account, …) | none (2 files) | none | none |
+| Product page, reviews open | `Reviews/Images` (styles, toggle, upload fields), `Support/Media` (asset versions), the nb_NO catalogue (form strings); per shown review `Avatars/Display`, `Avatars/Upload`, `Avatars/Gravatar`, `Support/Comments` (avatar chain). Budget 9. | `kaupang-review-images` (CSS), `kaupang-review-images-toggle` (footer JS); the enctype inline script only once the upload fields have rendered | none |
+| Page with the Curated Review block | `Block/CuratedReview`, `Support/Comments`, `Reviews/Images` (image ids), the catalogue ("Read more", dates); with `showAvatar` also the three `Avatars/*`. Budget 9. | block `style` (core inlines it) and the `…-view-script-module` module, both enqueued by core on render | none |
+| `wp-comments-post.php` (review submit) | `Reviews/Images`, `Avatars/Upload`, `Support/Media` on `preprocess_comment` / `comment_post` | — | — |
+| REST (`/wp/v2/block-renderer` preview) | `Block/CuratedReview` and its helpers on render | — | — |
+| wp-admin comments screens | `Reviews/Images`, `Avatars/Upload` on the column and meta-box hooks (also in admin-ajax for comment replies) | none | — |
+| Block editor (wp-admin) | block registered with `editorScript` (`build/index.asset.php`) and translated title | `editorScript` via block.json only | — |
+
+Outside wp-admin the block registers without `editorScript` and without `textdomain`
+(`Plugin::blockMetadata`), so ordinary pages neither read `build/index.asset.php` nor load the
+catalogue to translate a title nobody sees there. The gravatar-existence transients are written with
+an expiry, so they are never autoloaded.
+
 ## Building
 
 The editor JS is the only thing that needs a build. `block/build/` is **committed** so deploys
@@ -446,8 +468,10 @@ sudo -u myrvann wp --path=/var/www/staging.myrvann.no/htdocs \
 sudo -u myrvann wp --path=/var/www/staging.myrvann.no/htdocs \
   eval-file wp-content/plugins/kaupang-review-images/bin/seed-review-fixtures.php clean
 
-# The runnable check: seeds its own fixture, asserts 23 things, trashes it in a finally
-# block, and exits non-zero on failure.
+# The runnable check: asserts the load map (boot loads two files, every hook registered,
+# block assets on render only, no admin assets on a foreign screen), then seeds its own
+# fixture, asserts the block and avatar chain, trashes it in a finally block, and exits
+# non-zero on failure.
 sudo -u myrvann wp --path=/var/www/staging.myrvann.no/htdocs \
   eval-file wp-content/plugins/kaupang-review-images/bin/check-review-block.php
 ```

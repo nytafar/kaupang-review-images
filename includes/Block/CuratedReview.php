@@ -19,6 +19,7 @@ declare(strict_types=1);
 
 namespace Kaupang\ReviewImages\Block;
 
+use Kaupang\ReviewImages\Plugin;
 use Kaupang\ReviewImages\Reviews\Images;
 use Kaupang\ReviewImages\Support\Comments;
 
@@ -26,58 +27,7 @@ defined('ABSPATH') || exit;
 
 final class CuratedReview
 {
-    public const BLOCK_NAME = 'kaupang-review-images/curated-review';
-
-    public static function register(): void
-    {
-        add_action('init', [self::class, 'registerBlock']);
-    }
-
-    public static function registerBlock(): void
-    {
-        /**
-         * Kill switch for the whole block.
-         *
-         * __return_false removes it from the inserter entirely.
-         *
-         * @param bool $enabled
-         */
-        if (!apply_filters('kaupang/review-images/enable_block', true)) {
-            return;
-        }
-
-        $type = register_block_type(
-            KAUPANG_REVIEW_IMAGES_DIR . 'block',
-            ['render_callback' => [self::class, 'render']]
-        );
-
-        /**
-         * Drop the block's own stylesheet.
-         *
-         * The sheet ships structure only -- reading order, a round avatar, a
-         * photo that stays inside its column, stars that are not broken -- and
-         * no chrome, at zero specificity. A theme that would rather own even
-         * that returns false here and styles .is-style-quote /
-         * .is-style-stacked / .is-style-compact itself. The variations stay
-         * registered either way, so the editor still offers them.
-         *
-         * @param bool $enqueue
-         */
-        if ($type && !apply_filters('kaupang/review-images/enqueue_block_styles', true)) {
-            $type->style_handles = [];
-        }
-
-        // Editor strings ship in the plugin's own .mo files.
-        if ($type && !empty($type->editor_script_handles)) {
-            foreach ($type->editor_script_handles as $handle) {
-                wp_set_script_translations(
-                    $handle,
-                    'kaupang-review-images',
-                    KAUPANG_REVIEW_IMAGES_DIR . 'languages'
-                );
-            }
-        }
-    }
+    public const BLOCK_NAME = Plugin::BLOCK_NAME;
 
     /**
      * @param array<string, mixed> $attributes

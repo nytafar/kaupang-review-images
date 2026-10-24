@@ -19,49 +19,9 @@ final class Images
 
     public const MAX_FILE_SIZE_BYTES = 2 * 1024 * 1024; // 2MB
 
-    private static ?self $instance = null;
-
     private static ?int $uploadedImageAttachmentId = null;
 
-    public static function instance(): self
-    {
-        if (self::$instance === null) {
-            self::$instance = new self();
-        }
-
-        return self::$instance;
-    }
-
-    private function __construct()
-    {
-        add_action('plugins_loaded', [$this, 'init']);
-    }
-
-    public function init(): void
-    {
-        if (!class_exists('WooCommerce')) {
-            add_action('admin_notices', [$this, 'woocommerceMissingNotice']);
-
-            return;
-        }
-
-        add_action('wp_enqueue_scripts', [$this, 'enqueueAssets']);
-
-        add_action('comment_form_logged_in_after', [$this, 'displayUploadFieldAndNonce']);
-        add_action('comment_form_after_fields', [$this, 'displayUploadFieldAndNonce']);
-        add_action('wp_footer', [$this, 'ensureFormEnctypeScript'], 99);
-        add_action('preprocess_comment', [$this, 'handleImageUpload']);
-        add_action('comment_post', [$this, 'saveImageMeta'], 10, 2);
-        add_action('woocommerce_review_before', [$this, 'displayReviewImage']);
-
-        if (is_admin()) {
-            add_filter('manage_edit-comments_columns', [$this, 'addReviewImageAdminColumnHeader']);
-            add_action('manage_comments_custom_column', [$this, 'displayReviewImageAdminColumnContent'], 10, 2);
-            add_action('add_meta_boxes_comment', [$this, 'addReviewImageMetaBox']);
-        }
-    }
-
-    public function enqueueAssets(): void
+    public static function enqueueAssets(): void
     {
         if (!function_exists('is_product') || !is_product() || !comments_open()) {
             return;
@@ -85,7 +45,7 @@ final class Images
         );
     }
 
-    public function woocommerceMissingNotice(): void
+    public static function woocommerceMissingNotice(): void
     {
         ?>
         <div class="notice notice-error">
@@ -94,7 +54,7 @@ final class Images
         <?php
     }
 
-    public function displayUploadFieldAndNonce(): void
+    public static function displayUploadFieldAndNonce(): void
     {
         if (!is_product() || !comments_open()) {
             return;
@@ -202,9 +162,12 @@ final class Images
         </script>
         <?php
         $fieldDisplayed = true;
+
+        // The form is on this page, so the enctype it needs for the uploads is too.
+        add_action('wp_footer', [self::class, 'ensureFormEnctypeScript'], 99);
     }
 
-    public function ensureFormEnctypeScript(): void
+    public static function ensureFormEnctypeScript(): void
     {
         if (!is_product() || !comments_open()) {
             return;
@@ -224,7 +187,7 @@ final class Images
      * @param array<string, mixed> $commentdata
      * @return array<string, mixed>
      */
-    public function handleImageUpload($commentdata)
+    public static function handleImageUpload($commentdata)
     {
         if (!isset($_POST['comment_post_ID']) || get_post_type(absint($_POST['comment_post_ID'])) !== 'product') {
             return $commentdata;
@@ -260,7 +223,7 @@ final class Images
      * @param int        $commentId
      * @param int|string $commentApproved
      */
-    public function saveImageMeta($commentId, $commentApproved): void
+    public static function saveImageMeta($commentId, $commentApproved): void
     {
         if ($commentApproved && self::$uploadedImageAttachmentId !== null) {
             update_comment_meta($commentId, self::META_KEY_IMAGE_ID, self::$uploadedImageAttachmentId);
@@ -284,7 +247,7 @@ final class Images
         return $imageId ? [absint($imageId)] : [];
     }
 
-    public function displayReviewImage(\WP_Comment $comment): void
+    public static function displayReviewImage(\WP_Comment $comment): void
     {
         $imageIds = self::getImageIds((int) $comment->comment_ID);
 
@@ -300,7 +263,7 @@ final class Images
      * @param array<string, string> $columns
      * @return array<string, string>
      */
-    public function addReviewImageAdminColumnHeader($columns)
+    public static function addReviewImageAdminColumnHeader($columns)
     {
         $newColumns   = [];
         $insertBefore = isset($columns['date']) ? 'date' : 'response';
@@ -323,7 +286,7 @@ final class Images
      * @param string $columnName
      * @param int    $commentId
      */
-    public function displayReviewImageAdminColumnContent($columnName, $commentId): void
+    public static function displayReviewImageAdminColumnContent($columnName, $commentId): void
     {
         if ($columnName !== 'review_image') {
             return;
@@ -339,7 +302,7 @@ final class Images
         echo $html ?: esc_html__('N/A', 'kaupang-review-images');
     }
 
-    public function addReviewImageMetaBox(): void
+    public static function addReviewImageMetaBox(): void
     {
         global $comment;
 
@@ -347,7 +310,7 @@ final class Images
             add_meta_box(
                 'kaupang_review_image_meta_box',
                 __('Review Image', 'kaupang-review-images'),
-                [$this, 'renderReviewImageMetaBox'],
+                [self::class, 'renderReviewImageMetaBox'],
                 'comment',
                 'normal',
                 'high'
@@ -355,7 +318,7 @@ final class Images
         }
     }
 
-    public function renderReviewImageMetaBox(\WP_Comment $comment): void
+    public static function renderReviewImageMetaBox(\WP_Comment $comment): void
     {
         $imageIds = self::getImageIds((int) $comment->comment_ID);
 

@@ -16,6 +16,10 @@ is the filter table in README.md.
 - The block build had been failing silently.
 
 ### Changed
+- Loading (conventions §5A): every hook is registered in `Plugin::boot()` with a class-string callable; the module singletons are gone. A guest page with no review and no block loads 2 files (was 9) and no assets; review submit (`preprocess_comment`, `comment_post`) and the avatar filters stay registered in every context.
+- Curated Review block: `block.json` has a `version`, and `view.js` is a `viewScriptModule` that core prints only where the block renders (#17). Outside wp-admin the block registers without `editorScript`/`textdomain`, so ordinary pages no longer read `build/index.asset.php` or the translation catalogue.
+- The review-form enctype footer script prints only once the upload fields have rendered, not on every product page.
+- `tools/load-budget.php` and a README "Load map"; `bin/check-review-block.php` now also asserts the load map, the cross-context hooks and the admin foreign-screen rule.
 - Adopted suite kit v1: `tools/pre-commit` version-sync hook, this CHANGELOG.md as the one changelog, `WC tested up to: 11.1` with `cart_checkout_blocks` declared alongside HPOS.
 - Adopted suite kit v2: `readme.txt` generated from header + README.md + CHANGELOG.md (`readme.meta.json` for registry fields), `tools/release`.
 

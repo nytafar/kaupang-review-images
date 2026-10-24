@@ -18,22 +18,6 @@ defined('ABSPATH') || exit;
 
 final class Gravatar
 {
-    private static ?self $instance = null;
-
-    public static function instance(): self
-    {
-        if (self::$instance === null) {
-            self::$instance = new self();
-        }
-
-        return self::$instance;
-    }
-
-    private function __construct()
-    {
-        // Priority 10 — must run after Display's custom-avatar filter at 5.
-        add_filter('get_avatar', [$this, 'filterWoocommerceGravatar'], 10, 6);
-    }
 
     /**
      * Does a real (non-default) Gravatar exist for this address?
@@ -77,7 +61,7 @@ final class Gravatar
      * @param array<string, mixed> $args
      * @return string
      */
-    public function filterWoocommerceGravatar($avatar, $idOrEmail, $size, $default, $alt, $args = [])
+    public static function filterWoocommerceGravatar($avatar, $idOrEmail, $size, $default, $alt, $args = [])
     {
         // See Display::displayCustomAvatar() for why admin is left alone.
         if (is_admin()) {

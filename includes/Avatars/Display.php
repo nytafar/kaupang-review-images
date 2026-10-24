@@ -17,31 +17,6 @@ defined('ABSPATH') || exit;
 
 final class Display
 {
-    private static ?self $instance = null;
-
-    public static function instance(): self
-    {
-        if (self::$instance === null) {
-            self::$instance = new self();
-        }
-
-        return self::$instance;
-    }
-
-    private function __construct()
-    {
-        add_action('plugins_loaded', [$this, 'init']);
-    }
-
-    public function init(): void
-    {
-        if (!class_exists('WooCommerce')) {
-            return;
-        }
-
-        // Priority 5 — must run before Gravatar's resize filter at 10.
-        add_filter('get_avatar', [$this, 'displayCustomAvatar'], 5, 6);
-    }
 
     /**
      * @param string                    $avatar
@@ -52,7 +27,7 @@ final class Display
      * @param array<string, mixed>      $args
      * @return string
      */
-    public function displayCustomAvatar($avatar, $idOrEmail, $size, $default, $alt, $args = [])
+    public static function displayCustomAvatar($avatar, $idOrEmail, $size, $default, $alt, $args = [])
     {
         // ponytail: admin keeps WordPress's own avatars. getCustomAvatarHtml
         // pins width/height to avatar_base_size (120) for retina crispness on

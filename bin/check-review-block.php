@@ -25,10 +25,21 @@
 // ponytail: drop this line if wp-fail2ban ever guards its own getHost().
 $_SERVER['HTTP_HOST'] = $_SERVER['HTTP_HOST'] ?? (string) wp_parse_url(home_url(), PHP_URL_HOST);
 
+// What a fully booted request (plugins_loaded and init done, nothing rendered) has loaded
+// from this plugin. Taken before anything below touches a module class.
+$GLOBALS['kri_boot_files'] = array_values(array_map(
+    static fn(string $f): string => substr($f, strlen(KAUPANG_REVIEW_IMAGES_DIR)),
+    array_filter(get_included_files(), static fn(string $f): bool => strpos($f, KAUPANG_REVIEW_IMAGES_DIR) === 0)
+));
+
 define('KRI_FIXTURES_LIB', true);
 require_once __DIR__ . '/seed-review-fixtures.php';
 
+use Kaupang\ReviewImages\Avatars\Display;
+use Kaupang\ReviewImages\Avatars\Gravatar;
+use Kaupang\ReviewImages\Avatars\Upload;
 use Kaupang\ReviewImages\Block\CuratedReview;
+use Kaupang\ReviewImages\Plugin;
 use Kaupang\ReviewImages\Reviews\Images;
 
 // $GLOBALS, not `global`: `wp eval-file` evals this inside a method, so the
@@ -91,6 +102,74 @@ function kri_all_off(int $reviewId): array
         'showProductImage',
     ], false));
 }
+
+// --- loading (README "Load map") -------------------------------------------
+echo "loading\n";
+kri_check(
+    'boot loads only the main file and Plugin',
+    $GLOBALS['kri_boot_files'] === ['kaupang-review-images.php', 'includes/Plugin.php'],
+    implode(', ', $GLOBALS['kri_boot_files'])
+);
+
+// Every hook that can fire outside a page view (wp-comments-post.php, REST comment
+// creation, admin) is registered in this CLI request too, with a class-string callable.
+$kriHooks = [
+    ['preprocess_comment', [Images::class, 'handleImageUpload'], 10],
+    ['comment_post', [Images::class, 'saveImageMeta'], 10],
+    ['preprocess_comment', [Upload::class, 'handleAvatarUpload'], 10],
+    ['comment_post', [Upload::class, 'saveAvatarMeta'], 10],
+    ['woocommerce_review_before', [Images::class, 'displayReviewImage'], 10],
+    ['comment_form_logged_in_after', [Images::class, 'displayUploadFieldAndNonce'], 10],
+    ['comment_form_after_fields', [Images::class, 'displayUploadFieldAndNonce'], 10],
+    ['get_avatar', [Display::class, 'displayCustomAvatar'], 5],
+    ['get_avatar', [Gravatar::class, 'filterWoocommerceGravatar'], 10],
+];
+foreach ($kriHooks as [$hook, $cb, $prio]) {
+    kri_check("$hook → {$cb[0]}::{$cb[1]} at $prio", has_filter($hook, $cb) === $prio && is_callable($cb));
+}
+
+// The upload handlers run as static callables and pass non-review data through untouched.
+$kriData = ['comment_post_ID' => 0, 'comment_author' => 'x'];
+kri_check('image upload handler passes non-product comments through', Images::handleImageUpload($kriData) === $kriData);
+kri_check('avatar upload handler passes non-product comments through', Upload::handleAvatarUpload($kriData) === $kriData);
+
+kri_check('no enctype footer script before a review form renders', has_action('wp_footer', [Images::class, 'ensureFormEnctypeScript']) === false);
+
+$kriType = WP_Block_Type_Registry::get_instance()->get_registered(Plugin::BLOCK_NAME);
+kri_check('block registered with its render callback', $kriType && $kriType->render_callback === [CuratedReview::class, 'render']);
+kri_check(
+    'view script is a module core enqueues on render',
+    $kriType && $kriType->view_script_module_ids === ['kaupang-review-images-curated-review-view-script-module'] && $kriType->view_script_handles === []
+);
+kri_check('style is registered for core to enqueue on render', $kriType && $kriType->style_handles === ['kaupang-review-images-curated-review-style']);
+kri_check('no editor script outside wp-admin', $kriType && $kriType->editor_script_handles === []);
+
+// In wp-admin the editor gets its script and the translated title. is_admin() follows
+// the current screen; CLI has none, so lend it one and take it back.
+require_once ABSPATH . 'wp-admin/includes/class-wp-screen.php';
+require_once ABSPATH . 'wp-admin/includes/screen.php';
+$kriMeta = wp_json_file_decode(KAUPANG_REVIEW_IMAGES_DIR . 'block/block.json', ['associative' => true]);
+kri_check('front end drops editorScript and textdomain', !isset(Plugin::blockMetadata($kriMeta)['editorScript']) && !isset(Plugin::blockMetadata($kriMeta)['textdomain']));
+set_current_screen('post');
+$kriAdmin = Plugin::blockMetadata($kriMeta);
+kri_check('wp-admin keeps editorScript and textdomain', isset($kriAdmin['editorScript'], $kriAdmin['textdomain']));
+
+// Pattern E: on a foreign admin screen none of this plugin's handles is queued.
+$kriBefore = array_merge(wp_scripts()->queue, wp_styles()->queue);
+foreach ($GLOBALS['wp_filter']['admin_enqueue_scripts']->callbacks ?? [] as $kriCbs) {
+    foreach ($kriCbs as $kriCb) {
+        $fn = $kriCb['function'];
+        if (is_array($fn) && is_string($fn[0]) && strpos($fn[0], 'Kaupang\\ReviewImages\\') === 0) {
+            call_user_func($fn, 'index.php');
+        }
+    }
+}
+$kriLeaked = array_filter(
+    array_diff(array_merge(wp_scripts()->queue, wp_styles()->queue), $kriBefore),
+    static fn(string $h): bool => strpos($h, 'kaupang-review-images') === 0
+);
+kri_check('no admin assets on a foreign screen', $kriLeaked === [], implode(', ', $kriLeaked));
+$GLOBALS['current_screen'] = null;
 
 $fixture = kri_fixture_create();
 $id      = $fixture['comment_id'];
@@ -298,6 +377,21 @@ try {
     update_comment_meta($anon, KRI_FIXTURE_META, 1);
     $anonHtml = CuratedReview::render(array_merge(kri_all_on($anon), ['showReviewImages' => false, 'showProductImage' => false]));
     kri_check('review with no author email renders no <img>', stripos($anonHtml, '<img') === false, $anonHtml);
+
+    // --- review form ----------------------------------------------------------
+    // The enctype script follows the upload fields: rendered on a product page with
+    // reviews open, it is queued for the footer.
+    $GLOBALS['wp_query'] = new WP_Query(['p' => $fixture['product_id'], 'post_type' => 'product']);
+    $GLOBALS['post']     = get_post($fixture['product_id']);
+    if (comments_open()) {
+        ob_start();
+        Images::displayUploadFieldAndNonce();
+        $form = (string) ob_get_clean();
+        kri_check('upload fields render on a product with reviews open', strpos($form, 'wcri_review_image_upload') !== false);
+        kri_check('enctype footer script queued where the form renders', has_action('wp_footer', [Images::class, 'ensureFormEnctypeScript']) === 99);
+    } else {
+        echo "  skip review form: reviews closed on product {$fixture['product_id']}\n";
+    }
 } finally {
     kri_fixture_delete();
     echo "fixture removed\n";

@@ -21,45 +21,13 @@ final class Upload
 
     public const MAX_AVATAR_SIZE_BYTES = 1 * 1024 * 1024; // 1MB
 
-    private static ?self $instance = null;
-
     private static ?int $uploadedAvatarAttachmentId = null;
-
-    public static function instance(): self
-    {
-        if (self::$instance === null) {
-            self::$instance = new self();
-        }
-
-        return self::$instance;
-    }
-
-    private function __construct()
-    {
-        add_action('plugins_loaded', [$this, 'init']);
-    }
-
-    public function init(): void
-    {
-        if (!class_exists('WooCommerce')) {
-            return;
-        }
-
-        // The upload field itself is rendered by Reviews\Images, in a unified UI
-        // alongside the review-image field.
-        add_action('preprocess_comment', [$this, 'handleAvatarUpload']);
-        add_action('comment_post', [$this, 'saveAvatarMeta'], 10, 2);
-
-        if (is_admin()) {
-            add_action('add_meta_boxes_comment', [$this, 'addAvatarMetaBox']);
-        }
-    }
 
     /**
      * @param array<string, mixed> $commentdata
      * @return array<string, mixed>
      */
-    public function handleAvatarUpload($commentdata)
+    public static function handleAvatarUpload($commentdata)
     {
         if (!isset($_POST['comment_post_ID']) || get_post_type(absint($_POST['comment_post_ID'])) !== 'product') {
             return $commentdata;
@@ -101,7 +69,7 @@ final class Upload
      * @param int        $commentId
      * @param int|string $commentApproved
      */
-    public function saveAvatarMeta($commentId, $commentApproved): void
+    public static function saveAvatarMeta($commentId, $commentApproved): void
     {
         if ($commentApproved && self::$uploadedAvatarAttachmentId !== null) {
             update_comment_meta($commentId, self::META_KEY_AVATAR_ID, self::$uploadedAvatarAttachmentId);
@@ -143,7 +111,7 @@ final class Upload
         return wp_get_attachment_image_url($avatarId, $size) ?: false;
     }
 
-    public function addAvatarMetaBox(): void
+    public static function addAvatarMetaBox(): void
     {
         global $comment;
 
@@ -151,7 +119,7 @@ final class Upload
             add_meta_box(
                 'kaupang_review_avatar_meta_box',
                 __('Review Author Avatar', 'kaupang-review-images'),
-                [$this, 'renderAvatarMetaBox'],
+                [self::class, 'renderAvatarMetaBox'],
                 'comment',
                 'normal',
                 'high'
@@ -159,7 +127,7 @@ final class Upload
         }
     }
 
-    public function renderAvatarMetaBox(\WP_Comment $comment): void
+    public static function renderAvatarMetaBox(\WP_Comment $comment): void
     {
         $avatarId = self::getCommentAvatarId((int) $comment->comment_ID);
 
