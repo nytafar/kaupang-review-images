@@ -397,6 +397,15 @@ try {
     echo "fixture removed\n";
 }
 
+// Storefront load budget (conventions.md §5B).
+if (class_exists('WP_CLI') && is_array(WP_CLI::get_runner()->find_command_to_run(['kaupang-assets', 'audit']))) {
+    $audit = WP_CLI::runcommand('kaupang-assets audit --plugins=kaupang-review-images --budget', ['return' => 'all', 'exit_error' => false]);
+    echo $audit->stdout . "\n";
+    kri_check('kaupang-assets audit --plugins=kaupang-review-images --budget exits 0', $audit->return_code === 0 && $audit->stdout !== '', trim($audit->stderr));
+} else {
+    echo "  skip storefront budget: `wp kaupang-assets audit` is not available here\n";
+}
+
 printf("\n%d checks, %d failed\n", $GLOBALS['kri_checks'], count($GLOBALS['kri_failures']));
 
 if ($GLOBALS['kri_failures']) {

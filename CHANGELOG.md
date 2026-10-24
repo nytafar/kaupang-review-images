@@ -7,6 +7,7 @@ is the filter table in README.md.
 ## [Unreleased]
 
 ### Added
+- check.php runs the load budget audit.
 - Curated Review block style variations: Quote, Compact, and an unstyled default.
 - `expandable` block attribute: "Read more / Les mer" for long reviews (`block/view.js`).
 - `bin/seed-review-fixtures.php decorate|undecorate` for judging styles against real reviews.
