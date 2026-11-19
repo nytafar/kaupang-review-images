@@ -57,4 +57,36 @@ final class Comments
 
         return $comment;
     }
+
+    /**
+     * A comment that renders in a product's review list: a review, or a reply to one.
+     *
+     * Wider than asProductReview() on purpose, and only for avatars: the shop's replies
+     * (comment_type 'comment', staging has two) show in the same list, so their Gravatar
+     * must be served from this site too. Uploads, images and the block stay review-only.
+     */
+    public static function onProductPage(\WP_Comment $comment): ?\WP_Comment
+    {
+        if (!in_array($comment->comment_type, ['review', 'comment'], true)) {
+            return null;
+        }
+
+        return get_post_type((int) $comment->comment_post_ID) === 'product' ? $comment : null;
+    }
+
+    /**
+     * onProductPage() for a get_avatar()-style identifier; only comment objects resolve.
+     *
+     * @param mixed $idOrEmail
+     */
+    public static function onProductPageAvatar($idOrEmail): ?\WP_Comment
+    {
+        if (!is_object($idOrEmail) || !isset($idOrEmail->comment_ID)) {
+            return null;
+        }
+
+        $comment = $idOrEmail instanceof \WP_Comment ? $idOrEmail : get_comment((int) $idOrEmail->comment_ID);
+
+        return $comment ? self::onProductPage($comment) : null;
+    }
 }

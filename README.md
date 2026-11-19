@@ -20,10 +20,10 @@ PSR-4, slash-namespaced `kaupang/review-images/*` seams.
 - **Conditional Gravatar loading** — a review author with no real Gravatar and no upload gets
   *no* `<img>` at all, rather than the default silhouette
 - **Retina avatars** — base size plus a `2x` `srcset`, for both custom uploads and real Gravatars
-- **Gravatar lookups off the request** — whether a reviewer has a Gravatar is asked in the
-  background and stored on the review; a page view never calls gravatar.com
-- **"Show all" on long review lists** — every review stays in the HTML, past a cap the rest are
-  hidden behind a button
+- **Gravatars served from this site** — downloaded in the background, stored under uploads as
+  WebP; a visitor's browser never contacts gravatar.com
+- **Long review lists** — every review stays in the HTML; past a cap the rest are hidden behind
+  "Vis alle", and a long review is clamped behind "Les hele"
 - **Curated Review block** — place one specific review anywhere; the theme owns presentation
 - **Admin surface** — an "Image" column on the Comments screen plus review-image and avatar meta
   boxes on the comment-edit screen
@@ -330,11 +330,24 @@ schema back.
 
 ## Long review lists
 
-Every approved review is rendered on the product page: the review text is SEO content, and
-Google reads text hidden behind a toggle but never clicks a "load more". So nothing is paged and
-nothing is fetched later; only the display is capped (`includes/Reviews/ListCap.php`).
+Every approved review is rendered on the product page, in full: the review text is SEO content,
+and Google reads text hidden behind a toggle but never clicks a "load more". So nothing is paged
+and nothing is fetched later; only the display is shortened (`includes/Reviews/ListCap.php`).
 
-- Past the cap (default **6** top-level reviews, filter `kaupang/review-images/review_list_cap`)
+### "Les hele" on a long review
+
+- Each review's `.description` is clamped to **8** lines (filter
+  `kaupang/review-images/review_clamp_lines`, 0 = off).
+- The script measures every review and adds
+  `<button class="kaupang-review__more" aria-expanded aria-controls>` after the text **only where
+  the clamp actually cuts it**: "Les hele" / "Vis mindre". Opening puts `kaupang-review--expanded`
+  on the review `<li>`. Reviews revealed by "Vis alle", a resize and late fonts are measured again.
+- The button is placed by the theme. A card that is a CSS grid with explicit rows (myrvann's is)
+  must give `.kaupang-review__more` a row, or it auto-places into the first free cell.
+
+### "Vis alle" on a long list
+
+- Past the cap (default **8** top-level reviews, filter `kaupang/review-images/review_list_cap`)
   each review `<li>` gets `kaupang-reviews__overflow`, and an inline rule hides those. A list is
   capped only when at least 3 reviews would be hidden; otherwise it shows whole.
 - `assets/js/review-list.js` (handle `kaupang-review-images-list`, deferred) adds
@@ -342,34 +355,45 @@ nothing is fetched later; only the display is capped (`includes/Reviews/ListCap.
   "Vis alle 37 omtaler" / "Vis færre omtaler". Open puts `kaupang-reviews--open` on the
   `.commentlist` and focus on the first review that was hidden.
 - A link to a hidden review (`#comment-123`) opens the list and scrolls to it.
-- No scripting, no cap: the hide rule sits in `@media (scripting: enabled)`, and the script adds
-  no button where the browser doesn't know that feature.
+- No scripting, no cap and no clamp: both rules sit in `@media (scripting: enabled)`, and the
+  script adds no button where the browser doesn't know that feature.
 - Review photos are `loading="lazy"`, so a hidden review's photo isn't fetched until opened.
 - Replies travel with their review. Order follows WordPress's Discussion settings (staging:
   newest first).
 - Structured data is separate: WooCommerce's Product JSON-LD carries the aggregate rating and the
   five newest rated reviews whatever the list shows.
 
-The hide rule and the script are functional, not chrome, and ship even when
-`enqueue_styles` is off; the button's look is the theme's (`.kaupang-reviews__more`).
+The rules and the script are functional, not chrome, and ship even when `enqueue_styles` is
+off; the buttons' look is the theme's (`.kaupang-reviews__more`, `.kaupang-review__more`).
 
 ## Gravatars
 
-Whether a reviewer has a real Gravatar decides between their Gravatar and no `<img>` at all.
-That answer is asked of gravatar.com in the background (`includes/Avatars/GravatarCheck.php`)
-and kept on the review as comment meta, which the comment loop primes, so a list of 37 reviews
-costs no query and no remote call. A review never checked shows no Gravatar until it is.
+A reviewer's Gravatar is downloaded in the background (`includes/Avatars/GravatarCheck.php`),
+stored under `uploads/kaupang-review-images/gravatars/`, and served from there. A visitor's
+browser never contacts gravatar.com, so no visitor IP address goes to a third party, and the page
+carries no hash of the reviewer's email address (a plain md5/sha256 of an address is reversible by
+lookup).
 
-- **Approve, submit-approved, edit** a review → one async Action Scheduler action checks it
-  (`kaupang_review_images_check_gravatar`, unique while pending; inline when Action Scheduler is
-  missing).
-- **Daily** (`kaupang_review_images_refresh_gravatars`, recurring, group
-  `kaupang-review-images`) → queues a check for up to 200 reviews never checked or checked over
-  30 days ago. That is also the backfill after deploy. Ensured on
-  `action_scheduler_ensure_recurring_actions` and on activation, unscheduled on deactivation.
-- **Now**: `wp kaupang-review-images gravatars [--all]` checks every due review synchronously.
-  Run it after deploying this version to a site.
-- A network error stores nothing; the daily job asks again.
+- **What renders**: a custom upload, else the local copy, else no `<img>` at all. Never a
+  gravatar.com URL, including when a copy is recorded but missing.
+- **Which comments**: everything in a product's review list, reviews and the shop's replies to them
+  (`Comments::onProductPage()`). Uploads, review images and the block stay review-only.
+- **The files**: `{key}-{v}@1x.webp` and `@2x.webp`, at `gravatar_base_size` (120) and twice it.
+  `key` is a keyed hash (`wp_salt('auth')`) of the address, `v` a hash of the image, so a changed
+  Gravatar gets a new URL. Re-encoded to WebP where the image editor can (a 133 kB PNG became
+  5 kB); otherwise kept as served.
+- **One copy per address**: a check updates every review and reply by that author email; an old
+  copy is deleted once nothing points at it. A review deleted for good takes its copy along unless
+  another still uses it. A removed Gravatar deletes the copy.
+- **When**: approve, submit-approved or edit → one async Action Scheduler action
+  (`kaupang_review_images_check_gravatar`, unique while pending; inline without Action
+  Scheduler). Daily (`kaupang_review_images_refresh_gravatars`, recurring, group
+  `kaupang-review-images`) → queues up to 200 never checked or checked over 30 days ago; that is
+  also the backfill after deploy. Ensured on `action_scheduler_ensure_recurring_actions` and on
+  activation, unscheduled on deactivation.
+- **Now**: `wp kaupang-review-images gravatars [--all]` downloads every due copy synchronously.
+  **Run it after deploying** this version to a site.
+- A network error or a failed write changes nothing; the daily job asks again.
 
 ## Filters
 
@@ -388,8 +412,9 @@ Every filter this plugin defines, with the default it actually applies. All are 
 | `kaupang/review-images/upload_field_label` | `string $label`, `WP_Post $product` | `'Product Image'` | `includes/Reviews/Images.php` |
 | `kaupang/review-images/avatar_upload_field_label` | `string $label`, `WP_Post $product` | `'Your Photo'` | `includes/Reviews/Images.php` |
 | `kaupang/review-images/avatar_base_size` | `int $px` | `120` | `includes/Avatars/Display.php`, `includes/Block/CuratedReview.php` |
-| `kaupang/review-images/gravatar_base_size` | `int $px` | `120` | `includes/Avatars/Gravatar.php` |
-| `kaupang/review-images/review_list_cap` | `int $cap`, `WC_Product $product` | `6` (0 = off) | `includes/Reviews/ListCap.php` |
+| `kaupang/review-images/gravatar_base_size` | `int $px` | `120` (the local copy is this and 2×) | `includes/Avatars/Gravatar.php` |
+| `kaupang/review-images/review_list_cap` | `int $cap`, `WC_Product $product` | `8` (0 = off) | `includes/Reviews/ListCap.php` |
+| `kaupang/review-images/review_clamp_lines` | `int $lines`, `WC_Product $product` | `8` (0 = off) | `includes/Reviews/ListCap.php` |
 | `kaupang/review-images/custom_avatar_html` | `string $html`, `int $commentId`, `int $avatarId`, `int\|string $size` | the built `<img>` | `includes/Avatars/Display.php` |
 
 ### When the gates are evaluated
@@ -444,25 +469,28 @@ Public statics worth knowing about; everything else is internal.
 | `Avatars\Upload::hasCustomAvatar(int\|WP_Comment $comment)` | `bool` |
 | `Avatars\Upload::getCommentAvatarUrl(int $commentId, $size)` | `string\|false` |
 | `Avatars\Display::getCustomAvatarHtml(int $commentId, $size, string $alt)` | `string` — the custom upload only, *not* the Gravatar fallback. Use `get_avatar()` if you want the whole chain. |
-| `Avatars\Display::getAvatarUrl($comment, $size)` | `string\|false` — custom upload, else a Gravatar URL. |
-| `Avatars\Gravatar::hasGravatar(WP_Comment $comment)` | `bool` — the stored answer; never a remote call. |
-| `Avatars\Gravatar::lookup(string $email)` | `?bool` — the remote `HEAD` probe; `null` when unanswered. Background only. |
-| `Avatars\GravatarCheck::check(int $commentId)` | `?bool` — look up and store one review's answer. |
+| `Avatars\Display::getAvatarUrl($comment, $size)` | `string\|false` — custom upload, else the local Gravatar copy. Never a gravatar.com URL. |
+| `Avatars\Gravatar::hasGravatar(WP_Comment $comment)` | `bool` — is there a local copy; never a remote call. |
+| `Avatars\Gravatar::localUrls(WP_Comment $comment)` | `?array` — `[1x URL, 2x URL]` of the local copy. |
+| `Avatars\Gravatar::fetch(string $email)` | `array\|false\|null` — download both sizes; `false` = no Gravatar, `null` = unanswered. Background only. |
+| `Avatars\GravatarCheck::check(int $commentId)` | `?bool` — download and store the copy for that comment's author, applied to all their reviews. |
 | `Support\Comments::asProductReview(WP_Comment $comment)` | `?WP_Comment` — the "is this a product review" gate. |
 
 ## Data storage
 
-No custom tables. Comment meta plus ordinary attachments.
+No custom tables. Comment meta, ordinary attachments, and the Gravatar copies under
+`uploads/kaupang-review-images/gravatars/`.
 
 | Key | Holds |
 |---|---|
 | `_review_image_id` (comment meta) | attachment id of the review image |
 | `_review_author_avatar_id` (comment meta) | attachment id of the custom avatar |
 | `_kaupang_review_images_gravatar` (comment meta) | `'yes'`/`'no'`: does the author have a real Gravatar |
+| `_kaupang_review_images_gravatar_file` (comment meta) | the local copy, `{key}-{v}.webp` |
 | `_kaupang_review_images_gravatar_checked` (comment meta) | unix time of that answer |
-| `kaupang_review_images_has_gravatar_{md5(email)}` (transient) | legacy, read-only bridge until the first check; removed by uninstall |
+| `kaupang_review_images_has_gravatar_{md5(email)}` (transient) | legacy (≤ 2.0.0), no longer read; removed by uninstall |
 
-`uninstall.php` deletes the Gravatar meta, the legacy transients and the two jobs. Review photos
+`uninstall.php` deletes the Gravatar meta and copies, the legacy transients and the two jobs. Review photos
 and avatars are customer content and stay.
 
 Uploads are parented to the product via `media_handle_upload()`; avatar attachments also get
@@ -477,7 +505,7 @@ What a request loads from this plugin (`tools/load-budget.php`, measured with
 | Context / page type | Modules (beyond main file + `Plugin`) | Assets | Autoloaded options |
 |---|---|---|---|
 | Guest page with no review and no block (shop, category, cart, checkout, account, …) | none (2 files) | none | none |
-| Product page, reviews open | `Reviews/Images` (styles, toggle, upload fields), `Support/Media` (asset versions), the nb_NO catalogue (form strings); per shown review `Avatars/Display`, `Avatars/Upload`, `Avatars/Gravatar`, `Support/Comments` (avatar chain); `Reviews/ListCap` (decides the cap). Budget 10. | `kaupang-review-images` (CSS), `kaupang-review-images-toggle` (footer JS); the enctype inline script only once the upload fields have rendered; on a capped list `kaupang-review-images-list` (inline hide rule + deferred JS) | none |
+| Product page, reviews open | `Reviews/Images` (styles, toggle, upload fields), `Support/Media` (asset versions), the nb_NO catalogue (form strings); per shown review `Avatars/Display`, `Avatars/Upload`, `Avatars/Gravatar`, `Support/Comments` (avatar chain); `Reviews/ListCap` (decides the cap). Budget 10. | `kaupang-review-images` (CSS), `kaupang-review-images-toggle` (footer JS); the enctype inline script only once the upload fields have rendered; on a product with reviews `kaupang-review-images-list` (inline cap/clamp rules + deferred JS) | none |
 | Approve / edit a review, Action Scheduler run, WP-CLI | `Avatars/GravatarCheck` on its hooks | — | — |
 | Page with the Curated Review block | `Block/CuratedReview`, `Support/Comments`, `Reviews/Images` (image ids), the catalogue ("Read more", dates); with `showAvatar` also the three `Avatars/*`. Budget 9. | block `style` (core inlines it) and the `…-view-script-module` module, both enqueued by core on render | none |
 | `wp-comments-post.php` (review submit) | `Reviews/Images`, `Avatars/Upload`, `Support/Media` on `preprocess_comment` / `comment_post` | — | — |

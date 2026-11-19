@@ -92,6 +92,7 @@ final class Plugin
         add_action('comment_post', [GravatarCheck::class, 'onCommentPost'], 10, 2);
         add_action('transition_comment_status', [GravatarCheck::class, 'onStatusChange'], 10, 3);
         add_action('edit_comment', [GravatarCheck::class, 'onEdit']);
+        add_action('delete_comment', [GravatarCheck::class, 'onDelete']);
         // Literals, not GravatarCheck::HOOK_*: reading a class constant loads the class on every request.
         add_action('kaupang_review_images_check_gravatar', [GravatarCheck::class, 'check']);
         add_action('kaupang_review_images_refresh_gravatars', [GravatarCheck::class, 'refresh']);
@@ -103,10 +104,10 @@ final class Plugin
             \WP_CLI::add_command(
                 'kaupang-review-images gravatars',
                 /**
-                 * Check reviewers' Gravatars now instead of waiting for the daily job.
+                 * Download reviewers' Gravatars now instead of waiting for the daily job.
                  *
-                 * A page view never asks gravatar.com; it reads the answer stored on the
-                 * review. Run this after deploying, or to refresh every answer.
+                 * Pages serve local copies and never contact gravatar.com. Run this after
+                 * deploying, or with --all to refresh every copy.
                  *
                  * [--all]
                  * : Check every approved review, not only those never checked or checked over 30 days ago.

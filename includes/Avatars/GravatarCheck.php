@@ -1,10 +1,15 @@
 <?php
 /**
- * Gravatar lookups, off the request.
+ * Gravatar downloads, off the request.
  *
- * Whether a reviewer has a real Gravatar is asked of gravatar.com in the
- * background and kept on the review as comment meta, which the comment loop
- * primes. A page view only reads it (Gravatar::hasGravatar()).
+ * A reviewer's Gravatar is fetched from gravatar.com in the background, stored
+ * under uploads (Gravatar::store()), and recorded on the review as comment meta,
+ * which the comment loop primes. A page view only reads that meta and serves the
+ * local copy (Gravatar::filterWoocommerceGravatar()).
+ *
+ * One download per address: a check applies to every review by the same author
+ * email, so they share one copy, and an old copy is deleted only once no review
+ * points at it.
  *
  * - A review that is approved or edited queues a check of itself.
  * - A daily Action Scheduler job queues checks for reviews never checked, or
@@ -78,7 +83,7 @@ final class GravatarCheck
     public static function queue(int $commentId): void
     {
         $comment = get_comment($commentId);
-        if (!$comment || !Comments::asProductReview($comment)) {
+        if (!$comment || !Comments::onProductPage($comment)) {
             return;
         }
 
@@ -94,25 +99,93 @@ final class GravatarCheck
     /**
      * The HOOK_CHECK handler. Idempotent.
      *
-     * @return bool|null what was stored; null when gravatar.com gave no answer (nothing stored, the
-     *                   daily job retries)
+     * @return bool|null whether a Gravatar copy is now stored; null when gravatar.com gave no
+     *                   answer or the copy could not be written (nothing changed, the daily job retries)
      */
     public static function check($commentId): ?bool
     {
         $comment = get_comment((int) $commentId);
-        if (!$comment || !Comments::asProductReview($comment)) {
+        if (!$comment || !Comments::onProductPage($comment)) {
             return null;
         }
 
-        $has = Gravatar::lookup((string) $comment->comment_author_email);
-        if ($has === null) {
+        $email   = (string) $comment->comment_author_email;
+        $fetched = Gravatar::fetch($email);
+        if ($fetched === null) {
             return null;
         }
 
-        update_comment_meta((int) $comment->comment_ID, Gravatar::META_HAS, $has ? 'yes' : 'no');
-        update_comment_meta((int) $comment->comment_ID, Gravatar::META_CHECKED, time());
+        $file = '';
+        if ($fetched) {
+            $file = Gravatar::store($email, $fetched);
+            if ($file === null) {
+                return null;
+            }
+        }
 
-        return $has;
+        $ids = self::sameAuthor($comment);
+        $old = [];
+        foreach ($ids as $id) {
+            $old[] = (string) get_comment_meta($id, Gravatar::META_FILE, true);
+            update_comment_meta($id, Gravatar::META_HAS, $file !== '' ? 'yes' : 'no');
+            update_comment_meta($id, Gravatar::META_CHECKED, time());
+            $file !== '' ? update_comment_meta($id, Gravatar::META_FILE, $file) : delete_comment_meta($id, Gravatar::META_FILE);
+        }
+
+        // Every review by this address now points at $file, so an older copy is unreferenced.
+        foreach (array_unique(array_filter($old)) as $stale) {
+            if ($stale !== $file) {
+                Gravatar::deleteFiles($stale);
+            }
+        }
+
+        return $file !== '';
+    }
+
+    /**
+     * delete_comment: a review deleted for good takes its Gravatar copy along, unless another review still uses it.
+     *
+     * @param int|string $commentId
+     */
+    public static function onDelete($commentId): void
+    {
+        $file = (string) get_comment_meta((int) $commentId, Gravatar::META_FILE, true);
+        if ($file === '') {
+            return;
+        }
+
+        $others = get_comments([
+            'meta_key'       => Gravatar::META_FILE,
+            'meta_value'     => $file,
+            'comment__not_in' => [(int) $commentId],
+            'status'         => 'all',
+            'count'          => true,
+        ]);
+        if ((int) $others === 0) {
+            Gravatar::deleteFiles($file);
+        }
+    }
+
+    /**
+     * The comment and every other review or reply on a product by the same author email.
+     *
+     * @return array<int, int>
+     */
+    private static function sameAuthor(\WP_Comment $comment): array
+    {
+        $ids = [(int) $comment->comment_ID];
+        if ((string) $comment->comment_author_email !== '') {
+            $ids = array_merge($ids, array_map('intval', (array) get_comments([
+                'type__in'                  => ['review', 'comment'],
+                'author_email'              => $comment->comment_author_email,
+                'post_type'                 => 'product',
+                'status'                    => 'all',
+                'fields'                    => 'ids',
+                'update_comment_meta_cache' => false,
+            ])));
+        }
+
+        return array_values(array_unique($ids));
     }
 
     /** The HOOK_REFRESH handler: queue a check for every review that is due. */
@@ -124,14 +197,14 @@ final class GravatarCheck
     }
 
     /**
-     * Approved product reviews never checked, or checked more than RECHECK_DAYS ago.
+     * Approved reviews and replies on products never checked, or checked more than RECHECK_DAYS ago.
      *
      * @return array<int, int>
      */
     public static function due(int $limit, bool $all = false): array
     {
         $args = [
-            'type'                      => 'review',
+            'type__in'                  => ['review', 'comment'],
             'status'                    => 'approve',
             'post_type'                 => 'product',
             'fields'                    => 'ids',
@@ -192,13 +265,18 @@ final class GravatarCheck
             return;
         }
 
+        $start = time();
         $tally = ['yes' => 0, 'no' => 0, 'unknown' => 0];
         foreach ($ids as $id) {
+            // Already done in this run, as another review by the same address.
+            if ((int) get_comment_meta($id, Gravatar::META_CHECKED, true) >= $start) {
+                continue;
+            }
             $has = self::check($id);
             $tally[$has === null ? 'unknown' : ($has ? 'yes' : 'no')]++;
         }
 
-        $line = sprintf('Checked %d reviews: %d with a Gravatar, %d without, %d unanswered.', count($ids), $tally['yes'], $tally['no'], $tally['unknown']);
+        $line = sprintf('Checked %d reviews (%d reviewer addresses): %d with a Gravatar, now stored locally, %d without, %d unanswered.', count($ids), array_sum($tally), $tally['yes'], $tally['no'], $tally['unknown']);
         $tally['unknown'] ? \WP_CLI::warning($line . ' The daily job retries those.') : \WP_CLI::success($line);
     }
 }

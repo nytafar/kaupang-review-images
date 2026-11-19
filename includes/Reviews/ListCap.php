@@ -1,6 +1,6 @@
 <?php
 /**
- * "Show all reviews" on a long product review list.
+ * A long product review list: "Show all reviews", and "Read all" on a long review.
  *
  * Every approved review is still rendered: the text is the page's SEO content. Only
  * the display is capped. Structured data is separate and unaffected: WooCommerce's
@@ -9,8 +9,12 @@
  * CSS from first paint; review-list.js puts a button after the list that shows
  * and hides them.
  *
- * Without scripting the hide rule never matches (`@media (scripting: enabled)`)
- * and no button is added, so every review shows. A link to a hidden review
+ * A long review's text is clamped to a number of lines in the same way, and the
+ * script gives each review that actually overflows a "Read all" button. The full
+ * text is in the HTML either way.
+ *
+ * Without scripting neither rule matches (`@media (scripting: enabled)`) and no
+ * button is added, so every review shows in full. A link to a hidden review
  * (#comment-123) opens the list.
  *
  * @package KaupangReviewImages
@@ -29,23 +33,32 @@ final class ListCap
     public const HANDLE         = 'kaupang-review-images-list';
     public const CLASS_OVERFLOW = 'kaupang-reviews__overflow';
     public const CLASS_OPEN     = 'kaupang-reviews--open';
+    public const CLASS_EXPANDED = 'kaupang-review--expanded';
 
     /** Hiding one or two reviews behind a button costs more than it saves: show them. */
     public const MIN_HIDDEN = 3;
 
     private static int $cap = 0;
 
+    private static int $lines = 0;
+
     private static int $seen = 0;
 
     private static bool $listing = false;
 
     /**
-     * wp_enqueue_scripts on a product page. Wires the cap only where it will hide something.
+     * wp_enqueue_scripts on a product page with reviews. Wires the cap only where it will hide
+     * something; the clamp wherever it is on (the script decides per review whether it cuts).
      */
     public static function maybeWire(): void
     {
         $product = function_exists('wc_get_product') ? wc_get_product(get_queried_object_id()) : null;
         if (!$product) {
+            return;
+        }
+
+        $count = (int) $product->get_review_count();
+        if ($count < 1) {
             return;
         }
 
@@ -58,14 +71,27 @@ final class ListCap
          * @param int         $cap
          * @param \WC_Product $product
          */
-        $cap = (int) apply_filters('kaupang/review-images/review_list_cap', 6, $product);
-        if ($cap < 1 || (int) $product->get_review_count() - $cap < self::MIN_HIDDEN) {
+        $cap = (int) apply_filters('kaupang/review-images/review_list_cap', 8, $product);
+        $cap = $cap >= 1 && $count - $cap >= self::MIN_HIDDEN ? $cap : 0;
+
+        /**
+         * Lines of a review's text shown before "Read all". 0 shows every review in full.
+         *
+         * @param int         $lines
+         * @param \WC_Product $product
+         */
+        $lines = max(0, (int) apply_filters('kaupang/review-images/review_clamp_lines', 8, $product));
+
+        if (!$cap && !$lines) {
             return;
         }
 
-        self::$cap = $cap;
-        add_filter('woocommerce_product_review_list_args', [self::class, 'startList']);
-        add_filter('comment_class', [self::class, 'markOverflow'], 10, 4);
+        self::$cap   = $cap;
+        self::$lines = $lines;
+        if ($cap) {
+            add_filter('woocommerce_product_review_list_args', [self::class, 'startList']);
+            add_filter('comment_class', [self::class, 'markOverflow'], 10, 4);
+        }
 
         // Functional, not chrome: it ships even when a theme turns the plugin's stylesheet off.
         wp_register_style(self::HANDLE, false, [], KAUPANG_REVIEW_IMAGES_VERSION);
@@ -83,6 +109,8 @@ final class ListCap
             /* translators: %d: number of reviews on the product */
             'more' => __('Show all %d reviews', 'kaupang-review-images'),
             'less' => __('Show fewer reviews', 'kaupang-review-images'),
+            'readAll'  => __('Read all', 'kaupang-review-images'),
+            'readLess' => __('Show less', 'kaupang-review-images'),
         ]);
     }
 
@@ -124,6 +152,16 @@ final class ListCap
 
     public static function css(): string
     {
-        return '@media (scripting: enabled){.commentlist:not(.' . self::CLASS_OPEN . ')>.' . self::CLASS_OVERFLOW . '{display:none}}';
+        $rules = '';
+        if (self::$cap) {
+            $rules .= '.commentlist:not(.' . self::CLASS_OPEN . ')>.' . self::CLASS_OVERFLOW . '{display:none}';
+        }
+        if (self::$lines) {
+            // -webkit-line-clamp is the cross-browser spelling (Firefox and Safari included).
+            $rules .= '.commentlist .review:not(.' . self::CLASS_EXPANDED . ') .description{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:'
+                . self::$lines . ';overflow:hidden}';
+        }
+
+        return $rules === '' ? '' : '@media (scripting: enabled){' . $rules . '}';
     }
 }

@@ -65,14 +65,31 @@ function kri_check(string $name, bool $ok, string $detail = ''): void
     $GLOBALS['kri_failures'][] = $name;
 }
 
+/** A 1×1 PNG: what the stubbed gravatar.com returns. */
+function kri_png(): string
+{
+    return (string) base64_decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==');
+}
+
+/** Seed the answer GravatarCheck would store: with $exists, a real local copy. */
 function kri_gravatar_cache(int $commentId, bool $exists): void
 {
+    $file = $exists ? Gravatar::store('kri-' . $commentId . '@kaupang-review-images.invalid', ['ext' => 'png', '1x' => kri_png(), '2x' => kri_png()]) : '';
     update_comment_meta($commentId, Gravatar::META_HAS, $exists ? 'yes' : 'no');
     update_comment_meta($commentId, Gravatar::META_CHECKED, time());
+    $file ? update_comment_meta($commentId, Gravatar::META_FILE, $file) : delete_comment_meta($commentId, Gravatar::META_FILE);
+}
+
+/** Absolute paths of a META_FILE value's two copies. */
+function kri_gravatar_paths(string $file): array
+{
+    [$stem, $ext] = explode('.', $file, 2);
+
+    return [Gravatar::base('dir') . "/{$stem}@1x.{$ext}", Gravatar::base('dir') . "/{$stem}@2x.{$ext}"];
 }
 
 /**
- * Answer every outgoing HTTP request with $status (or a WP_Error for null) and count them.
+ * Answer every outgoing HTTP request with $status (or a WP_Error for null); count those to gravatar.com.
  *
  * @return callable the filter, to remove again
  */
@@ -80,11 +97,19 @@ function kri_stub_http(?int $status): callable
 {
     $GLOBALS['kri_http_calls'] = 0;
     $stub = static function ($pre, $args, $url) use ($status) {
-        $GLOBALS['kri_http_calls']++;
+        // Other plugins make requests of their own when a comment is inserted; count only ours.
+        if (strpos((string) $url, 'gravatar.com') !== false) {
+            $GLOBALS['kri_http_calls']++;
+        }
 
         return $status === null
             ? new WP_Error('kri_offline', 'stubbed')
-            : ['headers' => [], 'body' => '', 'response' => ['code' => $status, 'message' => ''], 'cookies' => []];
+            : [
+                'headers'  => $status === 200 ? ['content-type' => 'image/png'] : [],
+                'body'     => $status === 200 ? kri_png() : '',
+                'response' => ['code' => $status, 'message' => ''],
+                'cookies'  => [],
+            ];
     };
     add_filter('pre_http_request', $stub, 10, 3);
 
@@ -146,6 +171,7 @@ $kriHooks = [
     ['comment_post', [GravatarCheck::class, 'onCommentPost'], 10],
     ['transition_comment_status', [GravatarCheck::class, 'onStatusChange'], 10],
     ['edit_comment', [GravatarCheck::class, 'onEdit'], 10],
+    ['delete_comment', [GravatarCheck::class, 'onDelete'], 10],
     [GravatarCheck::HOOK_CHECK, [GravatarCheck::class, 'check'], 10],
     [GravatarCheck::HOOK_REFRESH, [GravatarCheck::class, 'refresh'], 10],
     ['action_scheduler_ensure_recurring_actions', [GravatarCheck::class, 'ensureSchedule'], 10],
@@ -404,11 +430,12 @@ try {
     $anonHtml = CuratedReview::render(array_merge(kri_all_on($anon), ['showReviewImages' => false, 'showProductImage' => false]));
     kri_check('review with no author email renders no <img>', stripos($anonHtml, '<img') === false, $anonHtml);
 
-    // --- Gravatar: answered in the background, read at render -------------------
+    // --- Gravatar: downloaded in the background, served from uploads ---------
     echo "gravatar\n";
     // Strip the answer the avatar-chain block above seeded: $bare is now "never checked".
-    delete_comment_meta($bare, Gravatar::META_HAS);
-    delete_comment_meta($bare, Gravatar::META_CHECKED);
+    foreach ([Gravatar::META_HAS, Gravatar::META_FILE, Gravatar::META_CHECKED] as $kriKey) {
+        delete_comment_meta($bare, $kriKey);
+    }
 
     $stub = kri_stub_http(200);
     $neverChecked = CuratedReview::render($noAvatar);
@@ -416,27 +443,84 @@ try {
     kri_check('a review never checked renders no <img>', stripos($neverChecked, '<img') === false, $neverChecked);
     kri_check('a review never checked is due', in_array($bare, GravatarCheck::due(PHP_INT_MAX), true));
 
-    kri_check('check stores yes on 200', GravatarCheck::check($bare) === true && get_comment_meta($bare, Gravatar::META_HAS, true) === 'yes');
+    // A second review by the same address shares the download.
+    $twin = (int) wp_insert_comment([
+        'comment_post_ID'      => $fixture['product_id'],
+        'comment_author'       => 'Kaupang Fixture (twin)',
+        'comment_author_email' => get_comment($bare)->comment_author_email,
+        'comment_type'         => 'review',
+        'comment_approved'     => 1,
+        'comment_content'      => 'Fixture by the same address.',
+    ]);
+    update_comment_meta($twin, KRI_FIXTURE_META, 1);
+
+    kri_check('check stores a copy on 200', GravatarCheck::check($bare) === true && get_comment_meta($bare, Gravatar::META_HAS, true) === 'yes');
+    kri_check('one download per address: two sizes', $GLOBALS['kri_http_calls'] === 2, $GLOBALS['kri_http_calls'] . ' requests');
+    $kriFile  = (string) get_comment_meta($bare, Gravatar::META_FILE, true);
+    $kriPaths = $kriFile !== '' ? kri_gravatar_paths($kriFile) : ['', ''];
+    kri_check('both copies are on disk', $kriFile !== '' && is_file($kriPaths[0]) && is_file($kriPaths[1]), $kriFile);
+    kri_check('the file name carries no plain email hash', strpos($kriFile, md5((string) get_comment($bare)->comment_author_email)) === false && strpos($kriFile, hash('sha256', (string) get_comment($bare)->comment_author_email)) === false);
+    kri_check('the same address shares the copy', get_comment_meta($twin, Gravatar::META_FILE, true) === $kriFile);
     kri_check('check stamps the time', abs((int) get_comment_meta($bare, Gravatar::META_CHECKED, true) - time()) < 60);
     kri_check('a fresh answer is not due', !in_array($bare, GravatarCheck::due(PHP_INT_MAX), true));
     kri_check('--all includes fresh answers', in_array($bare, GravatarCheck::due(PHP_INT_MAX, true), true));
+
+    $GLOBALS['kri_http_calls'] = 0;
     $withGravatar = CuratedReview::render(array_merge($noAvatar, ['showAvatar' => true]));
-    kri_check('a stored yes renders the Gravatar', strpos($withGravatar, 'wcri-gravatar') !== false, $withGravatar);
+    kri_check('a stored copy renders, marked wcri-gravatar', strpos($withGravatar, 'wcri-gravatar') !== false, $withGravatar);
+    kri_check('src and srcset point at this site', strpos($withGravatar, Gravatar::base('url')) !== false && stripos($withGravatar, 'gravatar.com') === false, $withGravatar);
+    kri_check('rendering a copy makes no request', $GLOBALS['kri_http_calls'] === 0);
+    kri_check('getAvatarUrl() is local', strpos((string) Display::getAvatarUrl(get_comment($bare), 240), Gravatar::base('url')) === 0);
     remove_filter('pre_http_request', $stub, 10);
+
+    // A copy recorded but gone from disk must not fall back to gravatar.com.
+    update_comment_meta($twin, Gravatar::META_FILE, 'garbage');
+    $broken = CuratedReview::render(array_merge(kri_all_on($twin), ['showReviewImages' => false, 'showProductImage' => false]));
+    kri_check('no valid copy renders no <img>, never a hotlink', stripos($broken, '<img') === false, $broken);
+    update_comment_meta($twin, Gravatar::META_FILE, $kriFile);
 
     update_comment_meta($bare, Gravatar::META_CHECKED, time() - (GravatarCheck::RECHECK_DAYS + 1) * DAY_IN_SECONDS);
     kri_check('an answer older than RECHECK_DAYS is due', in_array($bare, GravatarCheck::due(PHP_INT_MAX), true));
 
-    $stub = kri_stub_http(404);
-    kri_check('check stores no on 404', GravatarCheck::check($bare) === false && get_comment_meta($bare, Gravatar::META_HAS, true) === 'no');
-    remove_filter('pre_http_request', $stub, 10);
-
     $stub   = kri_stub_http(null);
     $before = get_comment_meta($bare, Gravatar::META_CHECKED, true);
-    kri_check('a network error stores nothing', GravatarCheck::check($bare) === null && get_comment_meta($bare, Gravatar::META_CHECKED, true) === $before);
+    kri_check('a network error changes nothing', GravatarCheck::check($bare) === null && get_comment_meta($bare, Gravatar::META_CHECKED, true) === $before && is_file($kriPaths[1]));
     remove_filter('pre_http_request', $stub, 10);
 
+    $stub = kri_stub_http(404);
+    kri_check('check stores no on 404', GravatarCheck::check($bare) === false && get_comment_meta($bare, Gravatar::META_HAS, true) === 'no');
+    kri_check('a removed Gravatar deletes the copy for every review', !is_file($kriPaths[0]) && !is_file($kriPaths[1]) && get_comment_meta($twin, Gravatar::META_FILE, true) === '');
+    remove_filter('pre_http_request', $stub, 10);
+
+    // Deleting a review deletes its copy only once no other review uses it.
+    $stub = kri_stub_http(200);
+    GravatarCheck::check($bare);
+    $kriPaths = kri_gravatar_paths((string) get_comment_meta($bare, Gravatar::META_FILE, true));
+    remove_filter('pre_http_request', $stub, 10);
+    wp_delete_comment($twin, true);
+    kri_check('deleting one of two reviews keeps the shared copy', is_file($kriPaths[1]));
+
     kri_check('check ignores a non-review', GravatarCheck::check(0) === null);
+
+    // The shop's reply to a review renders in the same list: its Gravatar is local too.
+    $reply = (int) wp_insert_comment([
+        'comment_post_ID'      => $fixture['product_id'],
+        'comment_parent'       => $id,
+        'comment_author'       => 'Kaupang Fixture (shop reply)',
+        'comment_author_email' => 'shop-reply@kaupang-review-images.invalid',
+        'comment_type'         => 'comment',
+        'comment_approved'     => 1,
+        'comment_content'      => 'Fixture reply.',
+    ]);
+    update_comment_meta($reply, KRI_FIXTURE_META, 1);
+    // KRI_FIXTURE_META is read with type 'review' by the fixture cleanup; this one is removed here.
+    kri_check('a reply with no copy renders no <img>, never a hotlink', get_avatar(get_comment($reply), 60) === '' );
+    $stub = kri_stub_http(200);
+    kri_check('a reply is checked like a review', GravatarCheck::check($reply) === true);
+    remove_filter('pre_http_request', $stub, 10);
+    $replyAvatar = (string) get_avatar(get_comment($reply), 60);
+    kri_check('a reply\'s copy is served from this site', strpos($replyAvatar, Gravatar::base('url')) !== false && stripos($replyAvatar, 'gravatar.com') === false, $replyAvatar);
+    wp_delete_comment($reply, true);
 
     if (function_exists('as_has_scheduled_action')) {
         GravatarCheck::onStatusChange('approved', 'unapproved', get_comment($bare));
@@ -466,7 +550,12 @@ try {
         $marks[] = in_array(ListCap::CLASS_OVERFLOW, ListCap::markOverflow(['review'], '', $id, $c), true);
     }
     kri_check('top-level reviews past the cap are marked, replies never', $marks === [false, false, false, true, true], wp_json_encode($marks));
-    kri_check('the hide rule only applies with scripting', strpos(ListCap::css(), '@media (scripting: enabled)') === 0, ListCap::css());
+    $capRef->setStaticPropertyValue('lines', 8);
+    kri_check('the hide and clamp rules only apply with scripting', strpos(ListCap::css(), '@media (scripting: enabled)') === 0, ListCap::css());
+    kri_check('the clamp is 8 lines and lifts on an expanded review', strpos(ListCap::css(), '-webkit-line-clamp:8') !== false && strpos(ListCap::css(), ':not(.' . ListCap::CLASS_EXPANDED . ')') !== false, ListCap::css());
+    $capRef->setStaticPropertyValue('cap', 0);
+    $capRef->setStaticPropertyValue('lines', 0);
+    kri_check('neither on, no rule', ListCap::css() === '');
     $capRef->setStaticPropertyValue('listing', false);
 
     // maybeWire() decides from the product's review count; pretend it is long, then short.
@@ -478,9 +567,12 @@ try {
     };
     add_filter('woocommerce_product_get_review_count', $countFilter);
 
-    $count = 6 + ListCap::MIN_HIDDEN - 1;
+    $count = 8 + ListCap::MIN_HIDDEN - 1;
     ListCap::maybeWire();
-    kri_check('no cap when fewer than MIN_HIDDEN would hide', has_filter('comment_class', [ListCap::class, 'markOverflow']) === false && !wp_script_is(ListCap::HANDLE, 'enqueued'));
+    kri_check('no cap when fewer than MIN_HIDDEN would hide (default cap 8)', has_filter('comment_class', [ListCap::class, 'markOverflow']) === false);
+    kri_check('the clamp still wires a short list', wp_script_is(ListCap::HANDLE, 'enqueued') && strpos((string) wp_scripts()->get_data(ListCap::HANDLE, 'data'), 'readAll') !== false);
+    wp_dequeue_script(ListCap::HANDLE);
+    wp_dequeue_style(ListCap::HANDLE);
 
     $count = 40;
     ListCap::maybeWire();
@@ -499,7 +591,13 @@ try {
     add_filter('kaupang/review-images/review_list_cap', $capOff);
     add_filter('woocommerce_product_get_review_count', $countFilter);
     ListCap::maybeWire();
-    kri_check('cap 0 turns it off', has_filter('comment_class', [ListCap::class, 'markOverflow']) === false);
+    kri_check('cap 0 turns the cap off', has_filter('comment_class', [ListCap::class, 'markOverflow']) === false);
+    wp_dequeue_script(ListCap::HANDLE);
+    wp_dequeue_style(ListCap::HANDLE);
+    add_filter('kaupang/review-images/review_clamp_lines', $capOff);
+    ListCap::maybeWire();
+    kri_check('cap 0 and clamp 0 load nothing', !wp_script_is(ListCap::HANDLE, 'enqueued'));
+    remove_filter('kaupang/review-images/review_clamp_lines', $capOff);
     remove_filter('woocommerce_product_get_review_count', $countFilter);
     remove_filter('kaupang/review-images/review_list_cap', $capOff);
 
@@ -518,8 +616,14 @@ try {
         echo "  skip review form: reviews closed on product {$fixture['product_id']}\n";
     }
 } finally {
+    $kriLeft = array_filter(array_map(
+        static fn($c) => (string) get_comment_meta((int) $c->comment_ID, Gravatar::META_FILE, true),
+        get_comments(['meta_key' => KRI_FIXTURE_META, 'status' => 'all', 'type' => 'review'])
+    ));
     kri_fixture_delete();
     echo "fixture removed\n";
+    $kriOrphans = array_filter(array_merge(...array_map('kri_gravatar_paths', array_values(array_unique($kriLeft)) ?: [])), 'is_file');
+    kri_check('deleting the fixture reviews deletes their copies', $kriOrphans === [], implode(', ', $kriOrphans));
 }
 
 // Storefront load budget (conventions.md §5B).

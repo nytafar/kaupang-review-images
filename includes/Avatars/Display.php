@@ -104,7 +104,7 @@ final class Display
     }
 
     /**
-     * Custom upload first, Gravatar as fallback.
+     * Custom upload first, then the local Gravatar copy. Never a gravatar.com URL.
      *
      * @param int|\WP_Comment        $comment
      * @param string|array<int, int> $size
@@ -119,13 +119,13 @@ final class Display
             return $customUrl;
         }
 
-        $commentObj = is_object($comment) ? $comment : get_comment($commentId);
-        if ($commentObj && !empty($commentObj->comment_author_email)) {
-            $hash = md5(strtolower(trim($commentObj->comment_author_email)));
-
-            return 'https://www.gravatar.com/avatar/' . $hash . '?s=' . (is_numeric($size) ? (int) $size : 96) . '&d=mp&r=g';
+        $commentObj = $comment instanceof \WP_Comment ? $comment : get_comment($commentId);
+        $urls       = $commentObj ? Gravatar::localUrls($commentObj) : null;
+        if ($urls === null) {
+            return false;
         }
 
-        return false;
+        // The 2x copy when asked for more than the base size, or for a named (non-numeric) size.
+        return is_numeric($size) && (int) $size <= Gravatar::baseSize() ? $urls[0] : $urls[1];
     }
 }

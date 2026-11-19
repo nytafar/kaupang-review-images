@@ -336,3 +336,7 @@ msgstr "Vis alle %d omtaler"
 #: includes/Reviews/ListCap.php
 msgid "Show fewer reviews"
 msgstr "Vis færre omtaler"
+
+#: includes/Reviews/ListCap.php
+msgid "Read all"
+msgstr "Les hele"
