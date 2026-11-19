@@ -111,16 +111,11 @@ final class GravatarCheck
 
         $email   = (string) $comment->comment_author_email;
         $fetched = Gravatar::fetch($email);
-        if ($fetched === null) {
-            return null;
-        }
+        $file    = $fetched ? Gravatar::store($email, $fetched) : '';
+        if ($fetched === null || $file === null) {
+            self::retryTomorrow((int) $comment->comment_ID);
 
-        $file = '';
-        if ($fetched) {
-            $file = Gravatar::store($email, $fetched);
-            if ($file === null) {
-                return null;
-            }
+            return null;
         }
 
         $ids = self::sameAuthor($comment);
@@ -140,6 +135,17 @@ final class GravatarCheck
         }
 
         return $file !== '';
+    }
+
+    /**
+     * An unanswered check keeps whatever copy there is, and becomes due on the next daily run.
+     *
+     * Without this, a review that already had a copy was not due again for RECHECK_DAYS: a
+     * failed refresh would wait a month.
+     */
+    private static function retryTomorrow(int $commentId): void
+    {
+        update_comment_meta($commentId, Gravatar::META_CHECKED, time() - (self::RECHECK_DAYS - 1) * DAY_IN_SECONDS);
     }
 
     /**

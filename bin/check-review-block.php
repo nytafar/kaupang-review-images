@@ -74,7 +74,7 @@ function kri_png(): string
 /** Seed the answer GravatarCheck would store: with $exists, a real local copy. */
 function kri_gravatar_cache(int $commentId, bool $exists): void
 {
-    $file = $exists ? Gravatar::store('kri-' . $commentId . '@kaupang-review-images.invalid', ['ext' => 'png', '1x' => kri_png(), '2x' => kri_png()]) : '';
+    $file = $exists ? Gravatar::store('kri-' . $commentId . '@kaupang-review-images.invalid', ['ext' => 'png', '1x' => kri_png(), '2x' => kri_png(), 'full' => kri_png()]) : '';
     update_comment_meta($commentId, Gravatar::META_HAS, $exists ? 'yes' : 'no');
     update_comment_meta($commentId, Gravatar::META_CHECKED, time());
     $file ? update_comment_meta($commentId, Gravatar::META_FILE, $file) : delete_comment_meta($commentId, Gravatar::META_FILE);
@@ -85,7 +85,7 @@ function kri_gravatar_paths(string $file): array
 {
     [$stem, $ext] = explode('.', $file, 2);
 
-    return [Gravatar::base('dir') . "/{$stem}@1x.{$ext}", Gravatar::base('dir') . "/{$stem}@2x.{$ext}"];
+    return array_map(static fn($d) => Gravatar::base('dir') . "/{$stem}@{$d}.{$ext}", Gravatar::DENSITIES);
 }
 
 /**
@@ -455,10 +455,10 @@ try {
     update_comment_meta($twin, KRI_FIXTURE_META, 1);
 
     kri_check('check stores a copy on 200', GravatarCheck::check($bare) === true && get_comment_meta($bare, Gravatar::META_HAS, true) === 'yes');
-    kri_check('one download per address: two sizes', $GLOBALS['kri_http_calls'] === 2, $GLOBALS['kri_http_calls'] . ' requests');
+    kri_check('one download per address: three sizes', $GLOBALS['kri_http_calls'] === 3, $GLOBALS['kri_http_calls'] . ' requests');
     $kriFile  = (string) get_comment_meta($bare, Gravatar::META_FILE, true);
     $kriPaths = $kriFile !== '' ? kri_gravatar_paths($kriFile) : ['', ''];
-    kri_check('both copies are on disk', $kriFile !== '' && is_file($kriPaths[0]) && is_file($kriPaths[1]), $kriFile);
+    kri_check('all three copies are on disk', $kriFile !== '' && count(array_filter($kriPaths, 'is_file')) === 3, $kriFile);
     kri_check('the file name carries no plain email hash', strpos($kriFile, md5((string) get_comment($bare)->comment_author_email)) === false && strpos($kriFile, hash('sha256', (string) get_comment($bare)->comment_author_email)) === false);
     kri_check('the same address shares the copy', get_comment_meta($twin, Gravatar::META_FILE, true) === $kriFile);
     kri_check('check stamps the time', abs((int) get_comment_meta($bare, Gravatar::META_CHECKED, true) - time()) < 60);
@@ -471,6 +471,7 @@ try {
     kri_check('src and srcset point at this site', strpos($withGravatar, Gravatar::base('url')) !== false && stripos($withGravatar, 'gravatar.com') === false, $withGravatar);
     kri_check('rendering a copy makes no request', $GLOBALS['kri_http_calls'] === 0);
     kri_check('getAvatarUrl() is local', strpos((string) Display::getAvatarUrl(get_comment($bare), 240), Gravatar::base('url')) === 0);
+    kri_check('a large getAvatarUrl() is the full copy', str_contains((string) Display::getAvatarUrl(get_comment($bare), 1024), '@full.'));
     remove_filter('pre_http_request', $stub, 10);
 
     // A copy recorded but gone from disk must not fall back to gravatar.com.
@@ -482,14 +483,16 @@ try {
     update_comment_meta($bare, Gravatar::META_CHECKED, time() - (GravatarCheck::RECHECK_DAYS + 1) * DAY_IN_SECONDS);
     kri_check('an answer older than RECHECK_DAYS is due', in_array($bare, GravatarCheck::due(PHP_INT_MAX), true));
 
-    $stub   = kri_stub_http(null);
-    $before = get_comment_meta($bare, Gravatar::META_CHECKED, true);
-    kri_check('a network error changes nothing', GravatarCheck::check($bare) === null && get_comment_meta($bare, Gravatar::META_CHECKED, true) === $before && is_file($kriPaths[1]));
+    $stub = kri_stub_http(null);
+    kri_check('a network error keeps the copy', GravatarCheck::check($bare) === null && get_comment_meta($bare, Gravatar::META_FILE, true) === $kriFile && is_file($kriPaths[1]));
+    $retry = (int) get_comment_meta($bare, Gravatar::META_CHECKED, true);
+    kri_check('a network error is retried on the next daily run, not in a month', $retry > time() - GravatarCheck::RECHECK_DAYS * DAY_IN_SECONDS && $retry < time() - (GravatarCheck::RECHECK_DAYS - 2) * DAY_IN_SECONDS);
     remove_filter('pre_http_request', $stub, 10);
+    update_comment_meta($bare, Gravatar::META_CHECKED, time() - (GravatarCheck::RECHECK_DAYS + 1) * DAY_IN_SECONDS);
 
     $stub = kri_stub_http(404);
     kri_check('check stores no on 404', GravatarCheck::check($bare) === false && get_comment_meta($bare, Gravatar::META_HAS, true) === 'no');
-    kri_check('a removed Gravatar deletes the copy for every review', !is_file($kriPaths[0]) && !is_file($kriPaths[1]) && get_comment_meta($twin, Gravatar::META_FILE, true) === '');
+    kri_check('a removed Gravatar deletes the copy for every review', array_filter($kriPaths, 'is_file') === [] && get_comment_meta($twin, Gravatar::META_FILE, true) === '');
     remove_filter('pre_http_request', $stub, 10);
 
     // Deleting a review deletes its copy only once no other review uses it.

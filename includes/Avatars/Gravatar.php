@@ -25,7 +25,10 @@ final class Gravatar
     /** Comment meta: 'yes' or 'no', written by GravatarCheck, never on a page view. */
     public const META_HAS = '_kaupang_review_images_gravatar';
 
-    /** Comment meta: the local copy, "{stem}.{ext}"; the files are {stem}@1x.{ext} and {stem}@2x.{ext}. */
+    /**
+     * Comment meta: the local copy, "{stem}.{ext}". The files are {stem}@1x.{ext} and {stem}@2x.{ext}
+     * (the avatar size and twice it) and {stem}@full.{ext} (FULL_SIZE px).
+     */
     public const META_FILE = '_kaupang_review_images_gravatar_file';
 
     /** Comment meta: unix time of the last lookup. */
@@ -36,7 +39,14 @@ final class Gravatar
 
     private const TYPES = ['image/jpeg' => 'jpg', 'image/png' => 'png', 'image/gif' => 'gif', 'image/webp' => 'webp'];
 
-    private const MAX_BYTES = 1024 * 1024;
+    /** The largest size gravatar.com serves. There is no "original": it scales smaller uploads up to this. */
+    public const FULL_SIZE = 2048;
+
+    /** The stored copies. fetch() downloads 2x first: its 404 answers "no Gravatar" before the larger download. */
+    public const DENSITIES = ['1x', '2x', 'full'];
+
+    /** Per download. A 2048 px PNG can run to several MB; it is stored as WebP. */
+    private const MAX_BYTES = 8 * 1024 * 1024;
 
     /**
      * Is there a local copy of this review author's Gravatar?
@@ -68,6 +78,14 @@ final class Gravatar
         return [$base . '/' . $m[1] . '@1x.' . $m[2], $base . '/' . $m[1] . '@2x.' . $m[2]];
     }
 
+    /** URL of the FULL_SIZE copy, for a theme or block that shows a reviewer large. */
+    public static function fullUrl(\WP_Comment $comment): ?string
+    {
+        $urls = self::localUrls($comment);
+
+        return $urls === null ? null : (string) preg_replace('/@1x\.(\w+)$/', '@full.$1', $urls[0]);
+    }
+
     /** The theme's avatar size in CSS pixels; the copy is kept at this and twice this. */
     public static function baseSize(): int
     {
@@ -75,9 +93,9 @@ final class Gravatar
     }
 
     /**
-     * Download a Gravatar at the base size and twice it. Background only.
+     * Download a Gravatar at the base size, twice it, and FULL_SIZE. Background only.
      *
-     * @return array{ext: string, 1x: string, 2x: string}|false|null false when the address has no
+     * @return array{ext: string, 1x: string, 2x: string, full: string}|false|null false when the address has no
      *                                                              Gravatar, null when unanswered
      */
     public static function fetch(string $email): array|false|null
@@ -89,10 +107,10 @@ final class Gravatar
 
         $size = self::baseSize();
         $out  = [];
-        foreach (['2x' => $size * 2, '1x' => $size] as $density => $px) {
+        foreach (['2x' => $size * 2, '1x' => $size, 'full' => self::FULL_SIZE] as $density => $px) {
             $response = wp_remote_get(
                 'https://www.gravatar.com/avatar/' . hash('sha256', $email) . '?s=' . $px . '&d=404',
-                ['timeout' => 5, 'limit_response_size' => self::MAX_BYTES]
+                ['timeout' => $density === 'full' ? 15 : 5, 'limit_response_size' => self::MAX_BYTES]
             );
             if (is_wp_error($response)) {
                 return null;
@@ -123,7 +141,7 @@ final class Gravatar
      * by lookup) plus a hash of the image, so a changed Gravatar gets a new URL and no cache
      * serves the old one.
      *
-     * @param array{ext: string, 1x: string, 2x: string} $fetched
+     * @param array{ext: string, 1x: string, 2x: string, full: string} $fetched
      * @return string|null "{stem}.{ext}" for META_FILE; null when the files could not be written
      */
     public static function store(string $email, array $fetched): ?string
@@ -140,7 +158,7 @@ final class Gravatar
         // at avatar sizes. Same pixel size, re-encoded only; otherwise the file as served.
         $ext = wp_image_editor_supports(['mime_type' => 'image/webp']) ? 'webp' : $fetched['ext'];
 
-        foreach (['1x', '2x'] as $density) {
+        foreach (self::DENSITIES as $density) {
             $target = "{$dir}/{$stem}@{$density}.{$ext}";
             if (!self::write($fetched[$density], $target, $ext === $fetched['ext'] ? null : 'image/webp')) {
                 return null;
@@ -177,7 +195,7 @@ final class Gravatar
             return;
         }
 
-        foreach (['1x', '2x'] as $density) {
+        foreach (self::DENSITIES as $density) {
             wp_delete_file(self::base('dir') . "/{$m[1]}@{$density}.{$m[2]}");
         }
     }

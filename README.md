@@ -378,7 +378,10 @@ lookup).
   gravatar.com URL, including when a copy is recorded but missing.
 - **Which comments**: everything in a product's review list, reviews and the shop's replies to them
   (`Comments::onProductPage()`). Uploads, review images and the block stay review-only.
-- **The files**: `{key}-{v}@1x.webp` and `@2x.webp`, at `gravatar_base_size` (120) and twice it.
+- **The files**: `{key}-{v}@1x.webp` and `@2x.webp`, at `gravatar_base_size` (120) and twice it,
+  plus `@full.webp` at 2048 px for anything that shows a reviewer large (`Gravatar::fullUrl()`).
+  2048 is the largest gravatar.com serves; it has no "original" and scales smaller uploads up, so
+  a full copy is 2048 px whatever was uploaded. As WebP a full copy runs 100–600 kB.
   `key` is a keyed hash (`wp_salt('auth')`) of the address, `v` a hash of the image, so a changed
   Gravatar gets a new URL. Re-encoded to WebP where the image editor can (a 133 kB PNG became
   5 kB); otherwise kept as served.
@@ -393,7 +396,8 @@ lookup).
   activation, unscheduled on deactivation.
 - **Now**: `wp kaupang-review-images gravatars [--all]` downloads every due copy synchronously.
   **Run it after deploying** this version to a site.
-- A network error or a failed write changes nothing; the daily job asks again.
+- A network error or a failed write keeps whatever copy there is and makes the review due on the
+  next daily run (not in 30 days).
 
 ## Filters
 
@@ -472,7 +476,8 @@ Public statics worth knowing about; everything else is internal.
 | `Avatars\Display::getAvatarUrl($comment, $size)` | `string\|false` — custom upload, else the local Gravatar copy. Never a gravatar.com URL. |
 | `Avatars\Gravatar::hasGravatar(WP_Comment $comment)` | `bool` — is there a local copy; never a remote call. |
 | `Avatars\Gravatar::localUrls(WP_Comment $comment)` | `?array` — `[1x URL, 2x URL]` of the local copy. |
-| `Avatars\Gravatar::fetch(string $email)` | `array\|false\|null` — download both sizes; `false` = no Gravatar, `null` = unanswered. Background only. |
+| `Avatars\Gravatar::fullUrl(WP_Comment $comment)` | `?string` — the 2048 px copy. `Display::getAvatarUrl()` returns it for a size above 2× base. |
+| `Avatars\Gravatar::fetch(string $email)` | `array\|false\|null` — download all three sizes; `false` = no Gravatar, `null` = unanswered. Background only. |
 | `Avatars\GravatarCheck::check(int $commentId)` | `?bool` — download and store the copy for that comment's author, applied to all their reviews. |
 | `Support\Comments::asProductReview(WP_Comment $comment)` | `?WP_Comment` — the "is this a product review" gate. |
 

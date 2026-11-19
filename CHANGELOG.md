@@ -9,7 +9,7 @@ is the filter table in README.md.
 ### Added
 - "Vis alle" on long product review lists (#18): every review stays in the HTML, past a cap (default 8, `kaupang/review-images/review_list_cap`) the rest are hidden until the button opens them. No-JS shows all; a `#comment-…` link opens the list.
 - "Les hele" on long reviews: review text clamped to 8 lines (`kaupang/review-images/review_clamp_lines`), with a button only where the clamp cuts. The theme places the button in its card.
-- Gravatars served from this site: downloaded in the background, stored as WebP under `uploads/kaupang-review-images/gravatars/`, one copy per reviewer address, covering the shop's replies too. No page links to gravatar.com any more.
+- Gravatars served from this site: downloaded in the background, stored as WebP under `uploads/kaupang-review-images/gravatars/`, one copy per reviewer address, covering the shop's replies too. Kept at the avatar size, twice it, and 2048 px (`Gravatar::fullUrl()`); a failed refresh is retried the next day. No page links to gravatar.com any more.
 - `wp kaupang-review-images gravatars [--all]`, and a daily Action Scheduler job that keeps the copies fresh (30 days).
 - `uninstall.php`: removes the Gravatar copies and meta, the legacy transients and the jobs; review photos and avatars stay.
 - check.php runs the load budget audit.

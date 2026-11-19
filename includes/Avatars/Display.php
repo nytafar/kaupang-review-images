@@ -125,7 +125,11 @@ final class Display
             return false;
         }
 
-        // The 2x copy when asked for more than the base size, or for a named (non-numeric) size.
-        return is_numeric($size) && (int) $size <= Gravatar::baseSize() ? $urls[0] : $urls[1];
+        // The smallest copy that covers the request; a named (non-numeric) size gets the 2x copy.
+        if (!is_numeric($size) || (int) $size <= Gravatar::baseSize() * 2) {
+            return is_numeric($size) && (int) $size <= Gravatar::baseSize() ? $urls[0] : $urls[1];
+        }
+
+        return Gravatar::fullUrl($commentObj);
     }
 }
