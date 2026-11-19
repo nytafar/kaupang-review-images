@@ -326,3 +326,13 @@ msgstr "Kompakt"
 
 #~ msgid "Avatar URL"
 #~ msgstr "Avatar URL"
+
+#. translators: %d: number of reviews on the product
+#: includes/Reviews/ListCap.php
+#, php-format
+msgid "Show all %d reviews"
+msgstr "Vis alle %d omtaler"
+
+#: includes/Reviews/ListCap.php
+msgid "Show fewer reviews"
+msgstr "Vis færre omtaler"

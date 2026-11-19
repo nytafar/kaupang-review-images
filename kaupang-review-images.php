@@ -49,4 +49,8 @@ add_action('before_woocommerce_init', static function (): void {
     }
 });
 
+// The daily Gravatar refresh (README "Gravatars"). Action Scheduler also re-ensures it daily.
+register_activation_hook(__FILE__, [\Kaupang\ReviewImages\Avatars\GravatarCheck::class, 'ensureSchedule']);
+register_deactivation_hook(__FILE__, [\Kaupang\ReviewImages\Avatars\GravatarCheck::class, 'unschedule']);
+
 \Kaupang\ReviewImages\Plugin::boot();

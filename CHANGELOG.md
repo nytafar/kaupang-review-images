@@ -7,16 +7,23 @@ is the filter table in README.md.
 ## [Unreleased]
 
 ### Added
+- "Show all" on long product review lists (#18): every review stays in the HTML, past a cap (default 6, `kaupang/review-images/review_list_cap`) the rest are hidden until the button opens them. No-JS shows all; a `#comment-…` link opens the list.
+- `wp kaupang-review-images gravatars [--all]`, and a daily Action Scheduler job that keeps Gravatar answers fresh (30 days).
+- `uninstall.php`: removes the Gravatar answers, the legacy transients and the jobs; review photos and avatars stay.
 - check.php runs the load budget audit.
 - Curated Review block style variations: Quote, Compact, and an unstyled default.
 - `expandable` block attribute: "Read more / Les mer" for long reviews (`block/view.js`).
 - `bin/seed-review-fixtures.php decorate|undecorate` for judging styles against real reviews.
 
 ### Fixed
+- `wcri-gravatar` was never added to a real Gravatar's class: `get_avatar()` single-quotes its class attribute.
 - Star rating rendered as overlapping text on themes without WooCommerce's star CSS; the block now ships a structural star-rating floor.
 - The block build had been failing silently.
 
 ### Changed
+- Gravatar existence is checked in the background (on approve/edit, daily refresh) and stored as comment meta; a page view never calls gravatar.com. Was a synchronous 2 s `HEAD` per uncached reviewer on render, cached one day (#18). **After deploy run `wp kaupang-review-images gravatars`**, or reviews show no Gravatar until the daily job reaches them.
+- `Gravatar::hasGravatar()` takes the `WP_Comment`, not an email.
+- Review photos render `loading="lazy"`.
 - Loading (conventions §5A): every hook is registered in `Plugin::boot()` with a class-string callable; the module singletons are gone. A guest page with no review and no block loads 2 files (was 9) and no assets; review submit (`preprocess_comment`, `comment_post`) and the avatar filters stay registered in every context.
 - Curated Review block: `block.json` has a `version`, and `view.js` is a `viewScriptModule` that core prints only where the block renders (#17). Outside wp-admin the block registers without `editorScript`/`textdomain`, so ordinary pages no longer read `build/index.asset.php` or the translation catalogue.
 - The review-form enctype footer script prints only once the upload fields have rendered, not on every product page.

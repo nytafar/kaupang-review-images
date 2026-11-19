@@ -55,7 +55,7 @@ final class Display
             // default silhouette is exactly what must not survive. Testing
             // hasGravatar() only when an email is present left that case
             // rendering the mystery-man this plugin exists to suppress.
-            if (empty($email) || !is_email($email) || !Gravatar::hasGravatar($email)) {
+            if (empty($email) || !is_email($email) || !Gravatar::hasGravatar($comment)) {
                 return '';
             }
         }

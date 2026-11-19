@@ -11,8 +11,9 @@
  * the accessor or the avatar chain breaks.
  *
  * The Gravatar half of the avatar chain is made deterministic by pre-seeding
- * the transient Gravatar::hasGravatar() caches into, so the check never depends
- * on a network round trip to gravatar.com.
+ * the comment meta Gravatar::hasGravatar() reads, and every lookup is answered
+ * by a pre_http_request stub, so the check never depends on a network round
+ * trip to gravatar.com.
  *
  * @package KaupangReviewImages
  */
@@ -37,10 +38,12 @@ require_once __DIR__ . '/seed-review-fixtures.php';
 
 use Kaupang\ReviewImages\Avatars\Display;
 use Kaupang\ReviewImages\Avatars\Gravatar;
+use Kaupang\ReviewImages\Avatars\GravatarCheck;
 use Kaupang\ReviewImages\Avatars\Upload;
 use Kaupang\ReviewImages\Block\CuratedReview;
 use Kaupang\ReviewImages\Plugin;
 use Kaupang\ReviewImages\Reviews\Images;
+use Kaupang\ReviewImages\Reviews\ListCap;
 
 // $GLOBALS, not `global`: `wp eval-file` evals this inside a method, so the
 // top-level scope here is function scope and `global` would bind elsewhere.
@@ -62,13 +65,30 @@ function kri_check(string $name, bool $ok, string $detail = ''): void
     $GLOBALS['kri_failures'][] = $name;
 }
 
-function kri_gravatar_cache(string $email, bool $exists): void
+function kri_gravatar_cache(int $commentId, bool $exists): void
 {
-    set_transient(
-        'kaupang_review_images_has_gravatar_' . md5($email),
-        $exists ? 'yes' : 'no',
-        HOUR_IN_SECONDS
-    );
+    update_comment_meta($commentId, Gravatar::META_HAS, $exists ? 'yes' : 'no');
+    update_comment_meta($commentId, Gravatar::META_CHECKED, time());
+}
+
+/**
+ * Answer every outgoing HTTP request with $status (or a WP_Error for null) and count them.
+ *
+ * @return callable the filter, to remove again
+ */
+function kri_stub_http(?int $status): callable
+{
+    $GLOBALS['kri_http_calls'] = 0;
+    $stub = static function ($pre, $args, $url) use ($status) {
+        $GLOBALS['kri_http_calls']++;
+
+        return $status === null
+            ? new WP_Error('kri_offline', 'stubbed')
+            : ['headers' => [], 'body' => '', 'response' => ['code' => $status, 'message' => ''], 'cookies' => []];
+    };
+    add_filter('pre_http_request', $stub, 10, 3);
+
+    return $stub;
 }
 
 /** Every toggle on, so nothing is hidden from the assertions. */
@@ -123,6 +143,12 @@ $kriHooks = [
     ['comment_form_after_fields', [Images::class, 'displayUploadFieldAndNonce'], 10],
     ['get_avatar', [Display::class, 'displayCustomAvatar'], 5],
     ['get_avatar', [Gravatar::class, 'filterWoocommerceGravatar'], 10],
+    ['comment_post', [GravatarCheck::class, 'onCommentPost'], 10],
+    ['transition_comment_status', [GravatarCheck::class, 'onStatusChange'], 10],
+    ['edit_comment', [GravatarCheck::class, 'onEdit'], 10],
+    [GravatarCheck::HOOK_CHECK, [GravatarCheck::class, 'check'], 10],
+    [GravatarCheck::HOOK_REFRESH, [GravatarCheck::class, 'refresh'], 10],
+    ['action_scheduler_ensure_recurring_actions', [GravatarCheck::class, 'ensureSchedule'], 10],
 ];
 foreach ($kriHooks as [$hook, $cb, $prio]) {
     kri_check("$hook → {$cb[0]}::{$cb[1]} at $prio", has_filter($hook, $cb) === $prio && is_callable($cb));
@@ -198,7 +224,7 @@ try {
     kri_check('accessor returns [] for a review with no image', Images::getImageIds($bare) === []);
 
     // --- render: happy path -------------------------------------------------
-    kri_gravatar_cache(KRI_FIXTURE_EMAIL, true);
+    kri_gravatar_cache($id, true);
     $html = CuratedReview::render(kri_all_on($id));
 
     // Assert against the OPENING <article> TAG, not the whole document: a
@@ -353,7 +379,7 @@ try {
 
     // --- avatar chain -------------------------------------------------------
     // Upload must beat a real Gravatar.
-    kri_gravatar_cache(KRI_FIXTURE_EMAIL, true);
+    kri_gravatar_cache($id, true);
     $withUpload = CuratedReview::render(kri_all_on($id));
     $avatarUrl  = (string) wp_get_attachment_image_url($fixture['avatar_id'], [120, 120]);
     kri_check('custom upload wins over a real Gravatar', $avatarUrl !== '' && strpos($withUpload, $avatarUrl) !== false);
@@ -361,7 +387,7 @@ try {
 
     // Neither an upload nor a Gravatar must produce no <img> at all.
     $noAvatar = array_merge(kri_all_on($bare), ['showReviewImages' => false, 'showProductImage' => false]);
-    kri_gravatar_cache((string) get_comment($bare)->comment_author_email, false);
+    kri_gravatar_cache($bare, false);
     $bareHtml = CuratedReview::render($noAvatar);
     kri_check('no upload and no Gravatar renders no <img>', stripos($bareHtml, '<img') === false, $bareHtml);
 
@@ -377,6 +403,105 @@ try {
     update_comment_meta($anon, KRI_FIXTURE_META, 1);
     $anonHtml = CuratedReview::render(array_merge(kri_all_on($anon), ['showReviewImages' => false, 'showProductImage' => false]));
     kri_check('review with no author email renders no <img>', stripos($anonHtml, '<img') === false, $anonHtml);
+
+    // --- Gravatar: answered in the background, read at render -------------------
+    echo "gravatar\n";
+    // Strip the answer the avatar-chain block above seeded: $bare is now "never checked".
+    delete_comment_meta($bare, Gravatar::META_HAS);
+    delete_comment_meta($bare, Gravatar::META_CHECKED);
+
+    $stub = kri_stub_http(200);
+    $neverChecked = CuratedReview::render($noAvatar);
+    kri_check('render never calls gravatar.com', $GLOBALS['kri_http_calls'] === 0, $GLOBALS['kri_http_calls'] . ' requests');
+    kri_check('a review never checked renders no <img>', stripos($neverChecked, '<img') === false, $neverChecked);
+    kri_check('a review never checked is due', in_array($bare, GravatarCheck::due(PHP_INT_MAX), true));
+
+    kri_check('check stores yes on 200', GravatarCheck::check($bare) === true && get_comment_meta($bare, Gravatar::META_HAS, true) === 'yes');
+    kri_check('check stamps the time', abs((int) get_comment_meta($bare, Gravatar::META_CHECKED, true) - time()) < 60);
+    kri_check('a fresh answer is not due', !in_array($bare, GravatarCheck::due(PHP_INT_MAX), true));
+    kri_check('--all includes fresh answers', in_array($bare, GravatarCheck::due(PHP_INT_MAX, true), true));
+    $withGravatar = CuratedReview::render(array_merge($noAvatar, ['showAvatar' => true]));
+    kri_check('a stored yes renders the Gravatar', strpos($withGravatar, 'wcri-gravatar') !== false, $withGravatar);
+    remove_filter('pre_http_request', $stub, 10);
+
+    update_comment_meta($bare, Gravatar::META_CHECKED, time() - (GravatarCheck::RECHECK_DAYS + 1) * DAY_IN_SECONDS);
+    kri_check('an answer older than RECHECK_DAYS is due', in_array($bare, GravatarCheck::due(PHP_INT_MAX), true));
+
+    $stub = kri_stub_http(404);
+    kri_check('check stores no on 404', GravatarCheck::check($bare) === false && get_comment_meta($bare, Gravatar::META_HAS, true) === 'no');
+    remove_filter('pre_http_request', $stub, 10);
+
+    $stub   = kri_stub_http(null);
+    $before = get_comment_meta($bare, Gravatar::META_CHECKED, true);
+    kri_check('a network error stores nothing', GravatarCheck::check($bare) === null && get_comment_meta($bare, Gravatar::META_CHECKED, true) === $before);
+    remove_filter('pre_http_request', $stub, 10);
+
+    kri_check('check ignores a non-review', GravatarCheck::check(0) === null);
+
+    if (function_exists('as_has_scheduled_action')) {
+        GravatarCheck::onStatusChange('approved', 'unapproved', get_comment($bare));
+        $queued = as_has_scheduled_action(GravatarCheck::HOOK_CHECK, ['comment_id' => $bare], GravatarCheck::GROUP);
+        kri_check('approving a review queues its check', $queued !== false);
+        as_unschedule_all_actions(GravatarCheck::HOOK_CHECK, ['comment_id' => $bare], GravatarCheck::GROUP);
+
+        GravatarCheck::onCommentPost($bare, 0);
+        kri_check('a held review queues nothing', as_has_scheduled_action(GravatarCheck::HOOK_CHECK, ['comment_id' => $bare], GravatarCheck::GROUP) === false);
+    } else {
+        echo "  skip queue: Action Scheduler is not loaded\n";
+    }
+
+    // --- list cap -------------------------------------------------------------
+    echo "list cap\n";
+    $capRef = new ReflectionClass(ListCap::class);
+    $capRef->setStaticPropertyValue('cap', 2);
+    $capRef->setStaticPropertyValue('listing', false);
+    $top   = get_comment($id);
+    $reply = clone $top;
+    $reply->comment_parent = (string) $id;
+
+    kri_check('nothing is marked outside the review list', ListCap::markOverflow(['review'], '', $id, $top) === ['review']);
+    ListCap::startList([]);
+    $marks = [];
+    foreach ([$top, $top, $reply, $top, $top] as $c) {
+        $marks[] = in_array(ListCap::CLASS_OVERFLOW, ListCap::markOverflow(['review'], '', $id, $c), true);
+    }
+    kri_check('top-level reviews past the cap are marked, replies never', $marks === [false, false, false, true, true], wp_json_encode($marks));
+    kri_check('the hide rule only applies with scripting', strpos(ListCap::css(), '@media (scripting: enabled)') === 0, ListCap::css());
+    $capRef->setStaticPropertyValue('listing', false);
+
+    // maybeWire() decides from the product's review count; pretend it is long, then short.
+    $GLOBALS['wp_query'] = new WP_Query(['p' => $fixture['product_id'], 'post_type' => 'product']);
+    $GLOBALS['wp_query']->get_queried_object();
+    $count = 0;
+    $countFilter = static function () use (&$count) {
+        return $count;
+    };
+    add_filter('woocommerce_product_get_review_count', $countFilter);
+
+    $count = 6 + ListCap::MIN_HIDDEN - 1;
+    ListCap::maybeWire();
+    kri_check('no cap when fewer than MIN_HIDDEN would hide', has_filter('comment_class', [ListCap::class, 'markOverflow']) === false && !wp_script_is(ListCap::HANDLE, 'enqueued'));
+
+    $count = 40;
+    ListCap::maybeWire();
+    kri_check('a long list wires the cap', has_filter('comment_class', [ListCap::class, 'markOverflow']) === 10 && has_filter('woocommerce_product_review_list_args', [ListCap::class, 'startList']) === 10);
+    kri_check('its script is queued, deferred', wp_script_is(ListCap::HANDLE, 'enqueued') && wp_scripts()->get_data(ListCap::HANDLE, 'strategy') === 'defer');
+    kri_check('its hide rule is inline, no file', wp_style_is(ListCap::HANDLE, 'enqueued') && wp_styles()->registered[ListCap::HANDLE]->src === false);
+    kri_check('the button labels travel with the script', strpos((string) wp_scripts()->get_data(ListCap::HANDLE, 'data'), '%d') !== false);
+
+    remove_filter('woocommerce_product_get_review_count', $countFilter);
+    remove_filter('comment_class', [ListCap::class, 'markOverflow'], 10);
+    remove_filter('woocommerce_product_review_list_args', [ListCap::class, 'startList']);
+    wp_dequeue_script(ListCap::HANDLE);
+    wp_dequeue_style(ListCap::HANDLE);
+
+    $capOff = static fn() => 0;
+    add_filter('kaupang/review-images/review_list_cap', $capOff);
+    add_filter('woocommerce_product_get_review_count', $countFilter);
+    ListCap::maybeWire();
+    kri_check('cap 0 turns it off', has_filter('comment_class', [ListCap::class, 'markOverflow']) === false);
+    remove_filter('woocommerce_product_get_review_count', $countFilter);
+    remove_filter('kaupang/review-images/review_list_cap', $capOff);
 
     // --- review form ----------------------------------------------------------
     // The enctype script follows the upload fields: rendered on a product page with

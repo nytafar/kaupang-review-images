@@ -19,37 +19,56 @@ defined('ABSPATH') || exit;
 final class Gravatar
 {
 
+    /** Comment meta: 'yes' or 'no', written by GravatarCheck, never on a page view. */
+    public const META_HAS = '_kaupang_review_images_gravatar';
+
+    /** Comment meta: unix time of the last lookup. */
+    public const META_CHECKED = '_kaupang_review_images_gravatar_checked';
+
     /**
-     * Does a real (non-default) Gravatar exist for this address?
+     * Does this review's author have a real (non-default) Gravatar?
      *
-     * Result cached 24h. Shared by the conditional-Gravatar filter and the
-     * custom-avatar display so the HEAD-request logic lives in one place.
+     * Reads only what is already known. Comment meta is primed with the comment
+     * loop, so a list of 37 reviews costs no query and no remote call. A review
+     * that has never been checked counts as "no" until GravatarCheck gets to it.
      */
-    public static function hasGravatar(string $email): bool
+    public static function hasGravatar(\WP_Comment $comment): bool
     {
-        if (empty($email)) {
+        $known = get_comment_meta((int) $comment->comment_ID, self::META_HAS, true);
+        if ($known !== '') {
+            return $known === 'yes';
+        }
+
+        // ponytail: the 1-day transient the old synchronous lookup wrote. Read-only
+        // bridge for the day between deploy and the first GravatarCheck run; delete
+        // once every site has run `wp kaupang-review-images gravatars`.
+        $email = (string) $comment->comment_author_email;
+
+        return $email !== '' && get_transient('kaupang_review_images_has_gravatar_' . md5($email)) === 'yes';
+    }
+
+    /**
+     * Ask gravatar.com. Background only: GravatarCheck and WP-CLI call this, a page view never does.
+     *
+     * @return bool|null null when the answer is unknown (network error, unexpected status)
+     */
+    public static function lookup(string $email): ?bool
+    {
+        if ($email === '' || !is_email($email)) {
             return false;
         }
 
-        $cacheKey = 'kaupang_review_images_has_gravatar_' . md5($email);
-        $cached   = get_transient($cacheKey);
-        if ($cached !== false) {
-            return $cached === 'yes';
+        $response = wp_remote_head(
+            'https://www.gravatar.com/avatar/' . md5(strtolower(trim($email))) . '?d=404',
+            ['timeout' => 5]
+        );
+        if (is_wp_error($response)) {
+            return null;
         }
 
-        $hash     = md5(strtolower(trim($email)));
-        // ponytail: 2s ceiling. This is a synchronous remote call on the first
-        // render for each reviewer address, and the block can put several on
-        // one page. Move it off the request entirely if that ever bites.
-        $response = wp_remote_head(
-            'https://www.gravatar.com/avatar/' . $hash . '?d=404',
-            ['timeout' => 2]
-        );
-        $hasReal  = !is_wp_error($response) && wp_remote_retrieve_response_code($response) === 200;
+        $code = (int) wp_remote_retrieve_response_code($response);
 
-        set_transient($cacheKey, $hasReal ? 'yes' : 'no', DAY_IN_SECONDS);
-
-        return $hasReal;
+        return $code === 200 ? true : ($code === 404 ? false : null);
     }
 
     /**
@@ -89,7 +108,7 @@ final class Gravatar
 
         // No real Gravatar: preserve whatever came in (may be empty, may be a
         // custom upload supplied by another filter).
-        if (!self::hasGravatar($email)) {
+        if (!self::hasGravatar($comment)) {
             return $avatar;
         }
 
@@ -108,6 +127,7 @@ final class Gravatar
 
         $avatar = preg_replace('/(width|height)=[\'"](\d+)[\'"]/', '$1="' . $baseSize . '"', (string) $avatar);
 
-        return str_replace('class="', 'class="wcri-gravatar ', (string) $avatar);
+        // get_avatar() quotes its class attribute with single quotes, so match either.
+        return (string) preg_replace('/\bclass=([\'"])/', 'class=$1wcri-gravatar ', (string) $avatar, 1);
     }
 }

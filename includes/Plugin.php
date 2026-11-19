@@ -20,9 +20,11 @@ namespace Kaupang\ReviewImages;
 
 use Kaupang\ReviewImages\Avatars\Display;
 use Kaupang\ReviewImages\Avatars\Gravatar;
+use Kaupang\ReviewImages\Avatars\GravatarCheck;
 use Kaupang\ReviewImages\Avatars\Upload;
 use Kaupang\ReviewImages\Block\CuratedReview;
 use Kaupang\ReviewImages\Reviews\Images;
+use Kaupang\ReviewImages\Reviews\ListCap;
 
 defined('ABSPATH') || exit;
 
@@ -42,6 +44,7 @@ final class Plugin
         if (apply_filters('kaupang/review-images/enable_conditional_gravatars', true)) {
             // Priority 10 — must run after Display's custom-avatar filter at 5.
             add_filter('get_avatar', [Gravatar::class, 'filterWoocommerceGravatar'], 10, 6);
+            self::wireGravatarCheck();
         }
 
         // WooCommerce loads after this plugin, so its presence is known at plugins_loaded.
@@ -78,12 +81,52 @@ final class Plugin
         add_action('init', [self::class, 'registerBlock']);
     }
 
+    /**
+     * Gravatar lookups happen here, never on a page view (README "Gravatars").
+     *
+     * Approve, submit and edit are cross-context events (admin, REST, wp-comments-post.php):
+     * registered everywhere, lazy handlers. The job hooks fire in cron, async requests and CLI.
+     */
+    private static function wireGravatarCheck(): void
+    {
+        add_action('comment_post', [GravatarCheck::class, 'onCommentPost'], 10, 2);
+        add_action('transition_comment_status', [GravatarCheck::class, 'onStatusChange'], 10, 3);
+        add_action('edit_comment', [GravatarCheck::class, 'onEdit']);
+        // Literals, not GravatarCheck::HOOK_*: reading a class constant loads the class on every request.
+        add_action('kaupang_review_images_check_gravatar', [GravatarCheck::class, 'check']);
+        add_action('kaupang_review_images_refresh_gravatars', [GravatarCheck::class, 'refresh']);
+        add_action('action_scheduler_ensure_recurring_actions', [GravatarCheck::class, 'ensureSchedule']);
+
+        if (defined('WP_CLI') && WP_CLI) {
+            // A closure, not [GravatarCheck::class, 'cli']: WP-CLI reflects a method callable at
+            // registration, which would load the class on every CLI run.
+            \WP_CLI::add_command(
+                'kaupang-review-images gravatars',
+                /**
+                 * Check reviewers' Gravatars now instead of waiting for the daily job.
+                 *
+                 * A page view never asks gravatar.com; it reads the answer stored on the
+                 * review. Run this after deploying, or to refresh every answer.
+                 *
+                 * [--all]
+                 * : Check every approved review, not only those never checked or checked over 30 days ago.
+                 *
+                 * @when after_wp_load
+                 */
+                static function (array $args, array $assoc): void {
+                    GravatarCheck::cli($args, $assoc);
+                }
+            );
+        }
+    }
+
     private static function wireImages(): void
     {
         // Pattern B: product page with reviews open, decided once the main query is known.
         add_action('wp_enqueue_scripts', static function (): void {
             if (function_exists('is_product') && is_product() && comments_open()) {
                 Images::enqueueAssets();
+                ListCap::maybeWire();
             }
         });
 
