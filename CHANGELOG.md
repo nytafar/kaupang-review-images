@@ -6,6 +6,8 @@ is the filter table in README.md.
 
 ## [Unreleased]
 
+## [2.1.0] - 2026-11-26
+
 ### Added
 - "Vis alle" on long product review lists (#18): every review stays in the HTML, past a cap (default 8, `kaupang/review-images/review_list_cap`) the rest are hidden until the button opens them. No-JS shows all; a `#comment-…` link opens the list.
 - "Les hele" on long reviews: review text clamped to 8 lines (`kaupang/review-images/review_clamp_lines`), with a button only where the clamp cuts. The theme places the button in its card.
