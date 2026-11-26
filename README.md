@@ -1,6 +1,5 @@
 # Kaupang Review Images
 
-[![Version 2.0.0](https://img.shields.io/badge/Version-2.0.0-brightgreen.svg)](https://github.com/nytafar/kaupang-review-images/releases)
 [![WooCommerce 9.0+](https://img.shields.io/badge/WooCommerce-9.0+-a46497.svg)](https://woocommerce.com/)
 [![PHP 8.1+](https://img.shields.io/badge/PHP-8.1+-8892BF.svg)](https://php.net/)
 [![License: GPL v2](https://img.shields.io/badge/License-GPL%20v2-blue.svg)](https://www.gnu.org/licenses/old-licenses/gpl-2.0.en.html)
