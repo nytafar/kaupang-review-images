@@ -6,6 +6,9 @@ is the filter table in README.md.
 
 ## [Unreleased]
 
+### Security
+- `bin/check-review-block.php` and `bin/seed-review-fixtures.php` open with `PHP_SAPI === 'cli' || exit;`, so a web request to one runs nothing (kaupang-docs#41).
+
 ## [2.1.0] - 2026-11-26
 
 ### Added

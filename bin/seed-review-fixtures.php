@@ -24,6 +24,8 @@
  * @package KaupangReviewImages
  */
 
+PHP_SAPI === 'cli' || exit; // a check, never a web page (conventions.md: tests and tools)
+
 // No declare(strict_types=1): `wp eval-file` evals the source, and a declare
 // must be the first statement of a script.
 
